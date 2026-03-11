@@ -256,9 +256,17 @@ app.post("/admin/reset-demo", async (req, res) => {
         return res.status(500).json({ ok: false, error: String(err) });
     }
 });
-app.listen(PORT, "0.0.0.0", () => {
-    console.log(`Empagij backend running on 0.0.0.0:${PORT}`);
-});
+ensureUsersTable()
+  .then(() => {
+    app.listen(PORT, "0.0.0.0", () => {
+      console.log(`Empagij backend running on 0.0.0.0:${PORT}`);
+    });
+  })
+  .catch((err) => {
+    console.error("Errore creazione tabella users:", err);
+    process.exit(1);
+  });
+
 
 
 
