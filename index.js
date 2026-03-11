@@ -5,6 +5,20 @@ require("dotenv").config({ path: path.join(__dirname, ".env") });
 const crypto = require("crypto");
 console.log("DB_HOST", process.env.DB_HOST, "DB_USER", process.env.DB_USER, "DB_PORT", process.env.DB_PORT, "DB_NAME", process.env.DB_NAME, "PWD_LEN", (process.env.DB_PASSWORD || "").length);
 const { getDb } = require("./db");
+async function ensureUsersTable() {
+  const db = await getDb();
+
+  await db.query(`
+    CREATE TABLE IF NOT EXISTS users (
+      id VARCHAR(191) NOT NULL PRIMARY KEY,
+      name VARCHAR(191) NOT NULL,
+      email VARCHAR(191) NOT NULL UNIQUE,
+      password_hash VARCHAR(255) NOT NULL
+    )
+  `);
+
+  await db.end();
+}
 const bcrypt = require("bcryptjs");
 const app = express();
 
@@ -245,5 +259,6 @@ app.post("/admin/reset-demo", async (req, res) => {
 app.listen(PORT, "0.0.0.0", () => {
     console.log(`Empagij backend running on 0.0.0.0:${PORT}`);
 });
+
 
 
