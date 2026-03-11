@@ -233,6 +233,62 @@ app.get("/producers", async (req, res) => {
         res.status(500).json({ ok: false, error: String(err) });
     }
 });
+// Crea producer
+app.post("/producers", async (req, res) => {
+    try {
+        const {
+            id,
+            name,
+            category,
+            address,
+            city,
+            phone,
+            notes,
+            opening_hours,
+            closed_days,
+            holidays,
+        } = req.body || {};
+
+        if (!name || !category) {
+            return res.status(400).json({
+                ok: false,
+                error: "Missing name/category",
+            });
+        }
+
+        const db = await getDb();
+
+        const producerId = id || crypto.randomUUID();
+
+        await db.query(
+            `INSERT INTO producers
+      (id, name, category, address, city, phone, notes, opening_hours, closed_days, holidays, created_at, updated_at)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NOW(), NOW())`,
+            [
+                producerId,
+                name,
+                category,
+                address || null,
+                city || null,
+                phone || null,
+                notes || null,
+                opening_hours || null,
+                closed_days || null,
+                holidays || null,
+            ]
+        );
+
+        await db.end();
+
+        return res.json({ ok: true, id: producerId });
+    } catch (err) {
+        console.error("CREATE PRODUCER ERROR:", err);
+        return res.status(500).json({
+            ok: false,
+            error: String(err),
+        });
+    }
+});
 // Elimina passaggio
 app.delete("/passaggi/:id", async (req, res) => {
     try {
