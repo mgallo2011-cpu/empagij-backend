@@ -261,6 +261,63 @@ app.post("/admin/reset-demo", async (req, res) => {
         return res.status(500).json({ ok: false, error: String(err) });
     }
 });
+// ===== RICHIESTE =====
+
+// Crea richiesta
+app.post("/richieste", async (req, res) => {
+    try {
+        const {
+            from_user_id,
+            from_name,
+            producer_id,
+            producer_name,
+            request_text,
+            status,
+        } = req.body || {};
+
+        if (
+            !from_user_id ||
+            !from_name ||
+            !producer_id ||
+            !producer_name ||
+            !request_text
+        ) {
+            return res.status(400).json({
+                ok: false,
+                error: "Missing required fields",
+            });
+        }
+
+        const db = await getDb();
+
+        const id = crypto.randomUUID();
+
+        await db.query(
+            `INSERT INTO richieste
+      (id, from_user_id, from_name, producer_id, producer_name, request_text, status)
+      VALUES (?, ?, ?, ?, ?, ?, ?)`,
+            [
+                id,
+                from_user_id,
+                from_name,
+                producer_id,
+                producer_name,
+                request_text,
+                status || "aperta",
+            ]
+        );
+
+        await db.end();
+
+        return res.json({ ok: true, id });
+    } catch (err) {
+        console.error("CREATE RICHIESTA ERROR:", err);
+        return res.status(500).json({
+            ok: false,
+            error: String(err),
+        });
+    }
+});
 ensureUsersTable()
   .then(() => {
     app.listen(PORT, "0.0.0.0", () => {
