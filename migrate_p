@@ -1,0 +1,39 @@
+﻿const { getDb } = require("./db");
+
+async function main() {
+  const db = await getDb();
+
+  await db.query(`
+    CREATE TABLE IF NOT EXISTS passaggi (
+      id VARCHAR(80) PRIMARY KEY,
+      from_user_id VARCHAR(36) NOT NULL,
+      from_name VARCHAR(120) NOT NULL,
+      producer_id VARCHAR(80) NOT NULL,
+      producer_name VARCHAR(200) NOT NULL,
+      producer_category VARCHAR(120) NOT NULL,
+      when_label VARCHAR(40) NOT NULL,
+      date_iso VARCHAR(20) NULL,
+      note TEXT NULL,
+      status VARCHAR(30) NOT NULL DEFAULT 'in_corso',
+      created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
+    );
+  `);
+
+  const [cols] = await db.query(`DESCRIBE passaggi;`);
+  console.log(
+
+
+
+
+
+
+"OK passaggi table. Columns:");
+  console.table(cols);
+
+  await db.end();
+}
+
+main().catch((e) => {
+  console.error("MIGRATION FAILED:", e);
+  process.exit(1);
+});
