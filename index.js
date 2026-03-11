@@ -113,9 +113,14 @@ app.get("/passaggi", async (req, res) => {
         );
         await db.end();
         return res.json({ ok: true, items: rows });
-    } catch (err) {
-        return res.status(500).json({ ok: false, error: String(err) });
-    }
+   } catch (err) {
+  console.error("REGISTER ERROR:", err);
+  return res.status(500).json({
+    ok: false,
+    error: String(err),
+    detail: err && err.message ? err.message : null
+  });
+}
 });
 
 // Crea passaggio
