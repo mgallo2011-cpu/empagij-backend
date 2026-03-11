@@ -21,8 +21,9 @@ app.get("/db-test", async (req, res) => {
     await db.end();
     res.json({ ok: true, rows });
   } catch (err) {
-    res.status(500).json({ ok: false, error: String(err) });
-  }
+     console.error(err);
+    return res.status(500).json({ ok: false, error: String(err) });
+}
 });
 app.post("/auth/register", async (req, res) => {
   try {
@@ -244,4 +245,5 @@ app.post("/admin/reset-demo", async (req, res) => {
 app.listen(PORT, "0.0.0.0", () => {
     console.log(`Empagij backend running on 0.0.0.0:${PORT}`);
 });
+
 
