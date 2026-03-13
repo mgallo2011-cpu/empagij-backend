@@ -216,15 +216,29 @@ const PORT = process.env.PORT || 4000;
 // GET all producers
 app.get("/producers", async (req, res) => {
     try {
+        const { created_by_user_id } = req.query || {};
+
+        if (!created_by_user_id) {
+            return res.status(400).json({
+                ok: false,
+                error: "Missing created_by_user_id",
+            });
+        }
+
         const db = await getDb();
 
-        const [rows] = await db.query(`
+        const [rows] = await db.query(
+            `
       SELECT id, name, category, address, city, phone,
              notes, opening_hours, closed_days, holidays,
+             created_by_user_id, visibility,
              created_at, updated_at
       FROM producers
+      WHERE created_by_user_id = ?
       ORDER BY name ASC
-    `);
+    `,
+            [created_by_user_id]
+        );
 
         await db.end();
 
@@ -247,12 +261,14 @@ app.post("/producers", async (req, res) => {
             opening_hours,
             closed_days,
             holidays,
+            created_by_user_id,
+            visibility,
         } = req.body || {};
 
-        if (!name || !category) {
+        if (!name || !category || !created_by_user_id) {
             return res.status(400).json({
                 ok: false,
-                error: "Missing name/category",
+                error: "Missing name/category/created_by_user_id",
             });
         }
 
@@ -262,8 +278,8 @@ app.post("/producers", async (req, res) => {
 
         await db.query(
             `INSERT INTO producers
-      (id, name, category, address, city, phone, notes, opening_hours, closed_days, holidays, created_at, updated_at)
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NOW(), NOW())`,
+      (id, name, category, address, city, phone, notes, opening_hours, closed_days, holidays, created_by_user_id, visibility, created_at, updated_at)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NOW(), NOW())`,
             [
                 producerId,
                 name,
@@ -275,6 +291,8 @@ app.post("/producers", async (req, res) => {
                 opening_hours || null,
                 closed_days || null,
                 holidays || null,
+                created_by_user_id,
+                visibility || "cerchia",
             ]
         );
 
