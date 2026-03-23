@@ -474,17 +474,31 @@ app.get("/invites/mine", async (req, res) => {
 
         const db = await getDb();
 
-        const [rows] = await db.query(
-            `
-      SELECT ci.id, ci.circle_id, c.name AS circle_name,
-             ci.invited_by_user_id, ci.invitee_email,
-             ci.status, ci.created_at
-      FROM circle_invites ci
-      JOIN circles c ON c.id = ci.circle_id
-      WHERE ci.status = 'pending'
-      ORDER BY ci.created_at DESC
+       const [userRows] = await db.query(
+    "SELECT email FROM users WHERE id = ? LIMIT 1",
+    [userId]
+);
+
+if (!userRows || userRows.length === 0) {
+    await db.end();
+    return res.status(404).json({ ok: false, error: "User not found" });
+}
+
+const userEmail = userRows[0].email;
+
+const [rows] = await db.query(
     `
-        );
+    SELECT ci.id, ci.circle_id, c.name AS circle_name,
+           ci.invited_by_user_id, ci.invitee_email,
+           ci.status, ci.created_at
+    FROM circle_invites ci
+    JOIN circles c ON c.id = ci.circle_id
+    WHERE ci.status = 'pending'
+      AND ci.invitee_email = ?
+    ORDER BY ci.created_at DESC
+    `,
+    [userEmail]
+);
 
         await db.end();
 
