@@ -23,6 +23,70 @@ async function ensureUsersTable() {
 
     await db.end();
 }
+async function ensureCirclesTable() {
+    const db = await getDb();
+
+    await db.query(`
+    CREATE TABLE IF NOT EXISTS circles (
+      id VARCHAR(191) NOT NULL PRIMARY KEY,
+      name VARCHAR(191) NOT NULL,
+      owner_user_id VARCHAR(191) NOT NULL,
+      created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+      updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+      INDEX idx_circles_owner_user_id (owner_user_id)
+    )
+  `);
+
+    await db.end();
+}
+
+async function ensureCircleMembersTable() {
+    const db = await getDb();
+
+    await db.query(`
+    CREATE TABLE IF NOT EXISTS circle_members (
+      id VARCHAR(191) NOT NULL PRIMARY KEY,
+      circle_id VARCHAR(191) NOT NULL,
+      user_id VARCHAR(191) NOT NULL,
+      role VARCHAR(50) NOT NULL DEFAULT 'member',
+      status VARCHAR(50) NOT NULL DEFAULT 'active',
+      joined_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+      created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+      updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+      UNIQUE KEY uniq_circle_user (circle_id, user_id),
+      INDEX idx_circle_members_circle_id (circle_id),
+      INDEX idx_circle_members_user_id (user_id)
+    )
+  `);
+
+    await db.end();
+}
+
+async function ensureCircleInvitesTable() {
+    const db = await getDb();
+
+    await db.query(`
+    CREATE TABLE IF NOT EXISTS circle_invites (
+      id VARCHAR(191) NOT NULL PRIMARY KEY,
+      circle_id VARCHAR(191) NOT NULL,
+      invited_by_user_id VARCHAR(191) NOT NULL,
+      invitee_email VARCHAR(191) NOT NULL,
+      invitee_user_id VARCHAR(191) NULL,
+      status VARCHAR(50) NOT NULL DEFAULT 'pending',
+      token VARCHAR(191) NOT NULL,
+      created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+      updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+      accepted_at TIMESTAMP NULL DEFAULT NULL,
+      UNIQUE KEY uniq_pending_invite_token (token),
+      INDEX idx_circle_invites_circle_id (circle_id),
+      INDEX idx_circle_invites_invitee_email (invitee_email),
+      INDEX idx_circle_invites_invitee_user_id (invitee_user_id),
+      INDEX idx_circle_invites_status (status)
+    )
+  `);
+
+    await db.end();
+}
 const bcrypt = require("bcryptjs");
 const app = express();
 
