@@ -89,6 +89,57 @@ app.get("/db-users-structure", async (req, res) => {
         return res.status(500).json({ ok: false, error: String(err) });
     }
 });
+app.get("/db-circles-structure", async (req, res) => {
+    try {
+        const db = await getDb();
+
+        const [circles] = await db.query(`
+      SELECT
+        COLUMN_NAME,
+        COLUMN_TYPE,
+        IS_NULLABLE,
+        COLUMN_DEFAULT,
+        'circles' AS table_name
+      FROM INFORMATION_SCHEMA.COLUMNS
+      WHERE TABLE_SCHEMA = DATABASE()
+        AND TABLE_NAME = 'circles'
+    `);
+
+        const [members] = await db.query(`
+      SELECT
+        COLUMN_NAME,
+        COLUMN_TYPE,
+        IS_NULLABLE,
+        COLUMN_DEFAULT,
+        'circle_members' AS table_name
+      FROM INFORMATION_SCHEMA.COLUMNS
+      WHERE TABLE_SCHEMA = DATABASE()
+        AND TABLE_NAME = 'circle_members'
+    `);
+
+        const [invites] = await db.query(`
+      SELECT
+        COLUMN_NAME,
+        COLUMN_TYPE,
+        IS_NULLABLE,
+        COLUMN_DEFAULT,
+        'circle_invites' AS table_name
+      FROM INFORMATION_SCHEMA.COLUMNS
+      WHERE TABLE_SCHEMA = DATABASE()
+        AND TABLE_NAME = 'circle_invites'
+    `);
+
+        await db.end();
+
+        res.json({
+            ok: true,
+            columns: [...circles, ...members, ...invites],
+        });
+    } catch (err) {
+        console.error("DB CIRCLES STRUCTURE ERROR:", err);
+        return res.status(500).json({ ok: false, error: String(err) });
+    }
+});
 app.post("/auth/register", async (req, res) => {
     try {
         const { name, email, password, province_code, province_name } = req.body || {};
@@ -168,6 +219,126 @@ app.post("/auth/login", async (req, res) => {
             },
         });
     } catch (err) {
+        return res.status(500).json({ ok: false, error: String(err) });
+    }
+});
+// Membri di una cerchia
+app.get("/circles/:id/members", async (req, res) => {
+    try {
+        const { id } = req.params;
+
+        const db = await getDb();
+
+        const [rows] = await db.query(
+            `
+            SELECT u.id, u.name, u.email, cm.role
+            FROM circle_members cm
+            JOIN users u ON u.id = cm.user_id
+            WHERE cm.circle_id = ?
+            `,
+            [id]
+        );
+
+        await db.end();
+
+        return res.json({ ok: true, members: rows });
+    } catch (err) {
+        console.error("GET MEMBERS ERROR:", err);
+        return res.status(500).json({ ok: false, error: String(err) });
+    }
+});
+// ===== CERCHIE =====
+
+// Crea una nuova cerchia
+app.post("/circles", async (req, res) => {
+    try {
+        const { name, owner_user_id } = req.body || {};
+
+        if (!name || !owner_user_id) {
+            return res.status(400).json({
+                ok: false,
+                error: "Missing name/owner_user_id",
+            });
+        }
+
+        const db = await getDb();
+
+        const circleId = crypto.randomUUID();
+
+        // crea cerchia
+        await db.query(
+            `INSERT INTO circles (id, name, owner_user_id)
+             VALUES (?, ?, ?)`,
+            [circleId, name, owner_user_id]
+        );
+
+        // aggiunge owner come membro
+        await db.query(
+            `INSERT INTO circle_members (id, circle_id, user_id, role)
+             VALUES (?, ?, ?, 'owner')`,
+            [crypto.randomUUID(), circleId, owner_user_id]
+        );
+
+        await db.end();
+
+        return res.json({ ok: true, id: circleId });
+    } catch (err) {
+        console.error("CREATE CIRCLE ERROR:", err);
+        return res.status(500).json({ ok: false, error: String(err) });
+    }
+});
+// Lista cerchie dell'utente
+app.get("/circles/mine", async (req, res) => {
+    try {
+        const userId = req.header("x-user-id");
+
+        if (!userId) {
+            return res.status(401).json({ ok: false, error: "Missing x-user-id" });
+        }
+
+        const db = await getDb();
+
+        const [rows] = await db.query(
+            `
+            SELECT c.id, c.name, c.owner_user_id
+            FROM circles c
+            JOIN circle_members cm ON cm.circle_id = c.id
+            WHERE cm.user_id = ?
+            ORDER BY c.created_at DESC
+            `,
+            [userId]
+        );
+
+        await db.end();
+
+        return res.json({ ok: true, circles: rows });
+    } catch (err) {
+        console.error("GET MY CIRCLES ERROR:", err);
+        return res.status(500).json({ ok: false, error: String(err) });
+    }
+});
+// Membri di una cerchia
+app.get("/circles/:id/members", async (req, res) => {
+    try {
+        const { id } = req.params;
+
+        const db = await getDb();
+
+        const [rows] = await db.query(
+            `
+            SELECT u.id, u.name, u.email, cm.role
+            FROM circle_members cm
+            JOIN users u ON u.id = cm.user_id
+            WHERE cm.circle_id = ?
+            `,
+            [id]
+        );
+
+        await db.end();
+
+        return res.json({ ok: true, members: rows });
+    } catch (err) {
+        console.error("GET MEMBERS ERROR:", err);
         return res.status(500).json({ ok: false, error: String(err) });
     }
 });
@@ -574,15 +745,20 @@ process.on("uncaughtException", (err) => {
 process.on("unhandledRejection", (reason) => {
     console.error("UNHANDLED REJECTION:", reason);
 });
-ensureUsersTable()
+Promise.all([
+    ensureUsersTable(),
+    ensureCirclesTable(),
+    ensureCircleMembersTable(),
+    ensureCircleInvitesTable(),
+])
     .then(() => {
-        console.log("Users table check OK");
+        console.log("Users/Circles tables check OK");
         app.listen(PORT, "0.0.0.0", () => {
             console.log(`Empagij backend running on 0.0.0.0:${PORT}`);
         });
     })
     .catch((err) => {
-        console.error("BOOT ERROR - ensureUsersTable failed:", err);
+        console.error("BOOT ERROR - table setup failed:", err);
         process.exit(1);
     });
 
