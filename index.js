@@ -494,6 +494,65 @@ app.get("/invites/mine", async (req, res) => {
         return res.status(500).json({ ok: false, error: String(err) });
     }
 });
+// Accetta invito
+app.post("/invites/:id/accept", async (req, res) => {
+    try {
+        const { id: inviteId } = req.params;
+        const userId = req.header("x-user-id");
+
+        if (!userId) {
+            return res.status(401).json({ ok: false, error: "Missing x-user-id" });
+        }
+
+        const db = await getDb();
+
+        const [invites] = await db.query(
+            `SELECT * FROM circle_invites
+             WHERE id = ? AND status = 'pending'
+             LIMIT 1`,
+            [inviteId]
+        );
+
+        if (!invites || invites.length === 0) {
+            await db.end();
+            return res.status(404).json({ ok: false, error: "Invite not found" });
+        }
+
+        const invite = invites[0];
+
+        const [alreadyMember] = await db.query(
+            `SELECT id FROM circle_members
+             WHERE circle_id = ? AND user_id = ?
+             LIMIT 1`,
+            [invite.circle_id, userId]
+        );
+
+        if (alreadyMember && alreadyMember.length > 0) {
+            await db.end();
+            return res.status(409).json({ ok: false, error: "Already a member" });
+        }
+
+        await db.query(
+            `INSERT INTO circle_members (id, circle_id, user_id, role, status)
+             VALUES (?, ?, ?, 'member', 'active')`,
+            [crypto.randomUUID(), invite.circle_id, userId]
+        );
+
+        await db.query(
+            `UPDATE circle_invites
+             SET status = 'accepted', invitee_user_id = ?, accepted_at = NOW()
+             WHERE id = ?`,
+            [userId, inviteId]
+        );
+
+        await db.end();
+
+        return res.json({ ok: true });
+    } catch (err) {
+        console.error("ACCEPT INVITE ERROR:", err);
+        return res.status(500).json({ ok: false, error: String(err) });
+    }
+});
 // ===== PASSAGGI =====
 
 // Lista passaggi (per ora tutti)
