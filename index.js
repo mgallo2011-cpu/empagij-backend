@@ -463,6 +463,37 @@ app.post("/circles/:id/invite", async (req, res) => {
         return res.status(500).json({ ok: false, error: String(err) });
     }
 });
+// Lista inviti ricevuti
+app.get("/invites/mine", async (req, res) => {
+    try {
+        const userId = req.header("x-user-id");
+
+        if (!userId) {
+            return res.status(401).json({ ok: false, error: "Missing x-user-id" });
+        }
+
+        const db = await getDb();
+
+        const [rows] = await db.query(
+            `
+      SELECT ci.id, ci.circle_id, c.name AS circle_name,
+             ci.invited_by_user_id, ci.invitee_email,
+             ci.status, ci.created_at
+      FROM circle_invites ci
+      JOIN circles c ON c.id = ci.circle_id
+      WHERE ci.status = 'pending'
+      ORDER BY ci.created_at DESC
+    `
+        );
+
+        await db.end();
+
+        return res.json({ ok: true, invites: rows });
+    } catch (err) {
+        console.error("GET INVITES ERROR:", err);
+        return res.status(500).json({ ok: false, error: String(err) });
+    }
+});
 // ===== PASSAGGI =====
 
 // Lista passaggi (per ora tutti)
