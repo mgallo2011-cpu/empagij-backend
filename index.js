@@ -406,6 +406,63 @@ app.get("/circles/:id/members", async (req, res) => {
         return res.status(500).json({ ok: false, error: String(err) });
     }
 });
+// Invita utente via email in una cerchia
+app.post("/circles/:id/invite", async (req, res) => {
+    try {
+        const { id: circle_id } = req.params;
+        const { invitee_email } = req.body || {};
+        const invited_by_user_id = req.header("x-user-id");
+
+        if (!invited_by_user_id) {
+            return res.status(401).json({ ok: false, error: "Missing x-user-id" });
+        }
+
+        if (!invitee_email) {
+            return res.status(400).json({ ok: false, error: "Missing invitee_email" });
+        }
+
+        const db = await getDb();
+
+        // verifica che la cerchia esista
+        const [circles] = await db.query(
+            "SELECT id FROM circles WHERE id = ? LIMIT 1",
+            [circle_id]
+        );
+
+        if (!circles || circles.length === 0) {
+            await db.end();
+            return res.status(404).json({ ok: false, error: "Circle not found" });
+        }
+
+        // verifica che chi invita sia membro della cerchia
+        const [members] = await db.query(
+            "SELECT id FROM circle_members WHERE circle_id = ? AND user_id = ? LIMIT 1",
+            [circle_id, invited_by_user_id]
+        );
+
+        if (!members || members.length === 0) {
+            await db.end();
+            return res.status(403).json({ ok: false, error: "Not a member of this circle" });
+        }
+
+        const id = crypto.randomUUID();
+        const token = crypto.randomUUID();
+
+        await db.query(
+            `INSERT INTO circle_invites
+      (id, circle_id, invited_by_user_id, invitee_email, token, status)
+      VALUES (?, ?, ?, ?, ?, ?)`,
+            [id, circle_id, invited_by_user_id, invitee_email, token, "pending"]
+        );
+
+        await db.end();
+
+        return res.json({ ok: true, id });
+    } catch (err) {
+        console.error("INVITE ERROR:", err);
+        return res.status(500).json({ ok: false, error: String(err) });
+    }
+});
 // ===== PASSAGGI =====
 
 // Lista passaggi (per ora tutti)
