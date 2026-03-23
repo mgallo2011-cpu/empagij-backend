@@ -6,18 +6,22 @@ const crypto = require("crypto");
 console.log("DB_HOST", process.env.DB_HOST, "DB_USER", process.env.DB_USER, "DB_PORT", process.env.DB_PORT, "DB_NAME", process.env.DB_NAME, "PWD_LEN", (process.env.DB_PASSWORD || "").length);
 const { getDb } = require("./db");
 async function ensureUsersTable() {
-  const db = await getDb();
+    const db = await getDb();
 
-  await db.query(`
+    await db.query(`
     CREATE TABLE IF NOT EXISTS users (
       id VARCHAR(191) NOT NULL PRIMARY KEY,
       name VARCHAR(191) NOT NULL,
       email VARCHAR(191) NOT NULL UNIQUE,
-      password_hash VARCHAR(255) NOT NULL
+      province_code VARCHAR(20) NOT NULL,
+      province_name VARCHAR(100) NOT NULL,
+      password_hash VARCHAR(255) NOT NULL,
+      created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+      updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
     )
   `);
 
-  await db.end();
+    await db.end();
 }
 const bcrypt = require("bcryptjs");
 const app = express();
@@ -39,34 +43,90 @@ app.get("/db-test", async (req, res) => {
     return res.status(500).json({ ok: false, error: String(err) });
 }
 });
+app.get("/db-producers-structure", async (req, res) => {
+    try {
+        const db = await getDb();
+
+        const [columns] = await db.query(`
+      SELECT
+        COLUMN_NAME,
+        COLUMN_TYPE,
+        IS_NULLABLE,
+        COLUMN_DEFAULT
+      FROM INFORMATION_SCHEMA.COLUMNS
+      WHERE TABLE_SCHEMA = DATABASE()
+        AND TABLE_NAME = 'producers'
+      ORDER BY ORDINAL_POSITION
+    `);
+
+        await db.end();
+        res.json({ ok: true, columns });
+    } catch (err) {
+        console.error("DB PRODUCERS STRUCTURE ERROR:", err);
+        return res.status(500).json({ ok: false, error: String(err) });
+    }
+});
+app.get("/db-users-structure", async (req, res) => {
+    try {
+        const db = await getDb();
+
+        const [columns] = await db.query(`
+      SELECT
+        COLUMN_NAME,
+        COLUMN_TYPE,
+        IS_NULLABLE,
+        COLUMN_DEFAULT
+      FROM INFORMATION_SCHEMA.COLUMNS
+      WHERE TABLE_SCHEMA = DATABASE()
+        AND TABLE_NAME = 'users'
+      ORDER BY ORDINAL_POSITION
+    `);
+
+        await db.end();
+        res.json({ ok: true, columns });
+    } catch (err) {
+        console.error("DB USERS STRUCTURE ERROR:", err);
+        return res.status(500).json({ ok: false, error: String(err) });
+    }
+});
 app.post("/auth/register", async (req, res) => {
-  try {
-    const { name, email, password } = req.body || {};
-    if (!name || !email || !password) {
-      return res.status(400).json({ ok: false, error: "Missing name/email/password" });
+    try {
+        const { name, email, password, province_code, province_name } = req.body || {};
+
+        if (!name || !email || !password || !province_code || !province_name) {
+            return res.status(400).json({
+                ok: false,
+                error: "Missing name/email/password/province_code/province_name",
+            });
+        }
+
+        const db = await getDb();
+
+        const [existing] = await db.query("SELECT id FROM users WHERE email = ?", [email]);
+        if (existing.length > 0) {
+            await db.end();
+            return res.status(409).json({ ok: false, error: "Email already registered" });
+        }
+
+        const id = crypto.randomUUID();
+        const password_hash = await bcrypt.hash(password, 10);
+
+        await db.query(
+            `INSERT INTO users
+       (id, name, email, province_code, province_name, password_hash)
+       VALUES (?, ?, ?, ?, ?, ?)`,
+            [id, name, email, province_code, province_name, password_hash]
+        );
+
+        await db.end();
+
+        return res.json({
+            ok: true,
+            user: { id, name, email, province_code, province_name },
+        });
+    } catch (err) {
+        return res.status(500).json({ ok: false, error: String(err) });
     }
-
-    const db = await getDb();
-
-    const [existing] = await db.query("SELECT id FROM users WHERE email = ?", [email]);
-    if (existing.length > 0) {
-      await db.end();
-      return res.status(409).json({ ok: false, error: "Email already registered" });
-    }
-
-    const id = crypto.randomUUID();
-    const password_hash = await bcrypt.hash(password, 10);
-
-    await db.query(
-      "INSERT INTO users (id, name, email, password_hash) VALUES (?, ?, ?, ?)",
-      [id, name, email, password_hash]
-    );
-
-    await db.end();
-    return res.json({ ok: true, user: { id, name, email } });
-  } catch (err) {
-    return res.status(500).json({ ok: false, error: String(err) });
-  }
 });
 app.post("/auth/login", async (req, res) => {
     try {
@@ -78,7 +138,7 @@ app.post("/auth/login", async (req, res) => {
         const db = await getDb();
 
         const [rows] = await db.query(
-            "SELECT id, name, email, password_hash FROM users WHERE email = ? LIMIT 1",
+            "SELECT id, name, email, province_code, province_name, password_hash FROM users WHERE email = ? LIMIT 1",
             [email]
         );
 
@@ -97,7 +157,16 @@ app.post("/auth/login", async (req, res) => {
         }
 
         // Per ora: ritorniamo solo l'utente (niente token ancora)
-        return res.json({ ok: true, user: { id: user.id, name: user.name, email: user.email } });
+        return res.json({
+            ok: true,
+            user: {
+                id: user.id,
+                name: user.name,
+                email: user.email,
+                province_code: user.province_code,
+                province_name: user.province_name,
+            },
+        });
     } catch (err) {
         return res.status(500).json({ ok: false, error: String(err) });
     }
@@ -213,15 +282,15 @@ app.delete("/passaggi/:id", async (req, res) => {
     }
 });
 const PORT = process.env.PORT || 4000;
-// GET all producers
+// GET producers by province
 app.get("/producers", async (req, res) => {
     try {
-        const { created_by_user_id } = req.query || {};
+        const { province_code } = req.query || {};
 
-        if (!created_by_user_id) {
+        if (!province_code) {
             return res.status(400).json({
                 ok: false,
-                error: "Missing created_by_user_id",
+                error: "Missing province_code",
             });
         }
 
@@ -229,15 +298,15 @@ app.get("/producers", async (req, res) => {
 
         const [rows] = await db.query(
             `
-      SELECT id, name, category, address, city, phone,
-             notes, opening_hours, closed_days, holidays,
+      SELECT id, name, category, province_code, address, city,
+             google_maps_url, website_url, notes,
              created_by_user_id, visibility,
              created_at, updated_at
       FROM producers
-      WHERE created_by_user_id = ?
+      WHERE province_code = ?
       ORDER BY name ASC
     `,
-            [created_by_user_id]
+            [String(province_code).trim().toUpperCase()]
         );
 
         await db.end();
@@ -264,6 +333,8 @@ app.post("/producers", async (req, res) => {
             created_by_user_id,
             visibility,
         } = req.body || {};
+        console.log("POST /producers BODY:", req.body);
+
 
         if (!name || !category || !created_by_user_id) {
             return res.status(400).json({
@@ -274,15 +345,55 @@ app.post("/producers", async (req, res) => {
 
         const db = await getDb();
 
-        const producerId = id || crypto.randomUUID();
+        const [users] = await db.query(
+            "SELECT province_code FROM users WHERE id = ? LIMIT 1",
+            [created_by_user_id]
+        );
 
+        if (!users || users.length === 0) {
+            await db.end();
+            return res.status(404).json({
+                ok: false,
+                error: "User not found",
+            });
+        }
+
+        const province_code = users[0].province_code || null;
+        console.log("POST /producers USER LOOKUP:", users[0]);
+        console.log("POST /producers province_code:", province_code);
+
+        if (!province_code) {
+            await db.end();
+            return res.status(400).json({
+                ok: false,
+                error: "User has no province_code",
+            });
+        }
+      
+        const producerId = id || crypto.randomUUID();
+        console.log("POST /producers INSERT DATA:", {
+            producerId,
+            name,
+            province_code,
+            category,
+            address: address || null,
+            city: city || null,
+            phone: phone || null,
+            notes: notes || null,
+            opening_hours: opening_hours || null,
+            closed_days: closed_days || null,
+            holidays: holidays || null,
+            created_by_user_id,
+            visibility: visibility || "cerchia",
+        });
         await db.query(
             `INSERT INTO producers
-      (id, name, category, address, city, phone, notes, opening_hours, closed_days, holidays, created_by_user_id, visibility, created_at, updated_at)
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NOW(), NOW())`,
+      (id, name, province_code, category, address, city, phone, notes, opening_hours, closed_days, holidays, created_by_user_id, visibility, created_at, updated_at)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NOW(), NOW())`,
             [
                 producerId,
                 name,
+                province_code,
                 category,
                 address || null,
                 city || null,
@@ -307,21 +418,85 @@ app.post("/producers", async (req, res) => {
         });
     }
 });
-// Elimina passaggio
-app.delete("/passaggi/:id", async (req, res) => {
+app.delete("/producers/:id", async (req, res) => {
     try {
         const { id } = req.params;
+        const userId = req.header("x-user-id");
+
+        if (!userId) {
+            return res.status(401).json({ ok: false, error: "Missing x-user-id" });
+        }
 
         const db = await getDb();
-        const [result] = await db.query("DELETE FROM passaggi WHERE id = ?", [id]);
+
+        const [result] = await db.query(
+            "DELETE FROM producers WHERE id = ? AND created_by_user_id = ?",
+            [id, userId]
+        );
+
+        console.log("DELETE /producers id:", id);
+        console.log("DELETE /producers userId:", userId);
+        console.log("DELETE /producers result:", result);
+
         await db.end();
 
         if (!result || result.affectedRows === 0) {
-            return res.status(404).json({ ok: false, error: "Not found" });
+            return res.status(404).json({ ok: false, error: "Not found or not allowed" });
         }
 
         return res.json({ ok: true });
     } catch (err) {
+        console.error("DELETE PRODUCER ERROR:", err);
+        return res.status(500).json({ ok: false, error: String(err) });
+    }
+});
+app.put("/producers/:id", async (req, res) => {
+    try {
+        const { id } = req.params;
+        const userId = req.header("x-user-id");
+
+        if (!userId) {
+            return res.status(401).json({ ok: false, error: "Missing x-user-id" });
+        }
+
+        const {
+            name,
+            category,
+            address,
+            city,
+            notes,
+        } = req.body || {};
+
+        if (!name || !category) {
+            return res.status(400).json({ ok: false, error: "Missing name/category" });
+        }
+
+        const db = await getDb();
+
+        const [result] = await db.query(
+            `UPDATE producers
+             SET name = ?, category = ?, address = ?, city = ?, notes = ?, updated_at = NOW()
+             WHERE id = ? AND created_by_user_id = ?`,
+            [
+                name,
+                category,
+                address || null,
+                city || null,
+                notes || null,
+                id,
+                userId,
+            ]
+        );
+
+        await db.end();
+
+        if (!result || result.affectedRows === 0) {
+            return res.status(404).json({ ok: false, error: "Not found or not allowed" });
+        }
+
+        return res.json({ ok: true });
+    } catch (err) {
+        console.error("UPDATE PRODUCER ERROR:", err);
         return res.status(500).json({ ok: false, error: String(err) });
     }
 });
@@ -392,16 +567,24 @@ app.post("/richieste", async (req, res) => {
         });
     }
 });
+process.on("uncaughtException", (err) => {
+    console.error("UNCAUGHT EXCEPTION:", err);
+});
+
+process.on("unhandledRejection", (reason) => {
+    console.error("UNHANDLED REJECTION:", reason);
+});
 ensureUsersTable()
-  .then(() => {
-    app.listen(PORT, "0.0.0.0", () => {
-      console.log(`Empagij backend running on 0.0.0.0:${PORT}`);
+    .then(() => {
+        console.log("Users table check OK");
+        app.listen(PORT, "0.0.0.0", () => {
+            console.log(`Empagij backend running on 0.0.0.0:${PORT}`);
+        });
+    })
+    .catch((err) => {
+        console.error("BOOT ERROR - ensureUsersTable failed:", err);
+        process.exit(1);
     });
-  })
-  .catch((err) => {
-    console.error("Errore creazione tabella users:", err);
-    process.exit(1);
-  });
 
 
 

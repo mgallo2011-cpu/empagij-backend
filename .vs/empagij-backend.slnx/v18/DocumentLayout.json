@@ -7,7 +7,12 @@
       "RelativeMoniker": "D:0:0:{A2FE74E1-B743-11D0-AE1A-00A0C90FFFC3}|\u003CMiscFiles\u003E|solutionrelative:index.js||{14D17961-FE51-464D-9111-C4AF11D7D99A}"
     },
     {
-      "AbsoluteMoniker": "D:0:0:{A2FE74E1-B743-11D0-AE1A-00A0C90FFFC3}|\u003CMiscFiles\u003E|C:\\Users\\maria\\Documents\\empagij\\src\\App.tsx||{0F2454B1-A556-402D-A7D0-1FDE7F99DEE0}"
+      "AbsoluteMoniker": "D:0:0:{A2FE74E1-B743-11D0-AE1A-00A0C90FFFC3}|\u003CMiscFiles\u003E|C:\\Users\\maria\\Documents\\empagij-backend\\check-users.js||{14D17961-FE51-464D-9111-C4AF11D7D99A}",
+      "RelativeMoniker": "D:0:0:{A2FE74E1-B743-11D0-AE1A-00A0C90FFFC3}|\u003CMiscFiles\u003E|solutionrelative:check-users.js||{14D17961-FE51-464D-9111-C4AF11D7D99A}"
+    },
+    {
+      "AbsoluteMoniker": "D:0:0:{A2FE74E1-B743-11D0-AE1A-00A0C90FFFC3}|\u003CMiscFiles\u003E|C:\\Users\\maria\\Documents\\empagij-backend\\alter-producers.js||{14D17961-FE51-464D-9111-C4AF11D7D99A}",
+      "RelativeMoniker": "D:0:0:{A2FE74E1-B743-11D0-AE1A-00A0C90FFFC3}|\u003CMiscFiles\u003E|solutionrelative:alter-producers.js||{14D17961-FE51-464D-9111-C4AF11D7D99A}"
     },
     {
       "AbsoluteMoniker": "D:0:0:{A2FE74E1-B743-11D0-AE1A-00A0C90FFFC3}|\u003CMiscFiles\u003E|C:\\Users\\maria\\Documents\\empagij-backend\\migrate_producers.js||{14D17961-FE51-464D-9111-C4AF11D7D99A}",
@@ -33,7 +38,7 @@
       "DocumentGroups": [
         {
           "DockedWidth": 200,
-          "SelectedChildIndex": 5,
+          "SelectedChildIndex": 1,
           "Children": [
             {
               "$type": "Bookmark",
@@ -41,20 +46,44 @@
             },
             {
               "$type": "Document",
-              "DocumentIndex": 1,
-              "Title": "App.tsx",
-              "DocumentMoniker": "C:\\Users\\maria\\Documents\\empagij\\src\\App.tsx",
-              "RelativeDocumentMoniker": "..\\empagij\\src\\App.tsx",
-              "ToolTip": "C:\\Users\\maria\\Documents\\empagij\\src\\App.tsx",
-              "RelativeToolTip": "..\\empagij\\src\\App.tsx",
-              "ViewState": "AgIAAM8LAAAAAAAAAAAmwOALAABBAAAAAAAAAA==",
-              "Icon": "ae27a6b0-e345-4288-96df-5eaf394ee369.003213|",
-              "WhenOpened": "2026-03-13T18:01:43.9Z",
+              "DocumentIndex": 0,
+              "Title": "index.js",
+              "DocumentMoniker": "C:\\Users\\maria\\Documents\\empagij-backend\\index.js",
+              "RelativeDocumentMoniker": "index.js",
+              "ToolTip": "C:\\Users\\maria\\Documents\\empagij-backend\\index.js",
+              "RelativeToolTip": "index.js",
+              "ViewState": "AgIAAIwAAAAAAAAAAIAwwJsAAAAjAAAAAAAAAA==",
+              "Icon": "ae27a6b0-e345-4288-96df-5eaf394ee369.001646|",
+              "WhenOpened": "2026-03-18T17:40:35.32Z",
               "EditorCaption": ""
             },
             {
               "$type": "Document",
-              "DocumentIndex": 3,
+              "DocumentIndex": 1,
+              "Title": "check-users.js",
+              "DocumentMoniker": "C:\\Users\\maria\\Documents\\empagij-backend\\check-users.js",
+              "RelativeDocumentMoniker": "check-users.js",
+              "ToolTip": "C:\\Users\\maria\\Documents\\empagij-backend\\check-users.js",
+              "RelativeToolTip": "check-users.js",
+              "ViewState": "AgIAAAMAAAAAAAAAAAAAABMAAAAFAAAAAAAAAA==",
+              "Icon": "ae27a6b0-e345-4288-96df-5eaf394ee369.001646|",
+              "WhenOpened": "2026-03-17T11:26:16.686Z"
+            },
+            {
+              "$type": "Document",
+              "DocumentIndex": 2,
+              "Title": "alter-producers.js",
+              "DocumentMoniker": "C:\\Users\\maria\\Documents\\empagij-backend\\alter-producers.js",
+              "RelativeDocumentMoniker": "alter-producers.js",
+              "ToolTip": "C:\\Users\\maria\\Documents\\empagij-backend\\alter-producers.js",
+              "RelativeToolTip": "alter-producers.js",
+              "ViewState": "AgIAABUAAAAAAAAAAAAQwB0AAAADAAAAAAAAAA==",
+              "Icon": "ae27a6b0-e345-4288-96df-5eaf394ee369.001646|",
+              "WhenOpened": "2026-03-16T16:16:19.086Z"
+            },
+            {
+              "$type": "Document",
+              "DocumentIndex": 4,
               "Title": "db.js",
               "DocumentMoniker": "C:\\Users\\maria\\Documents\\empagij-backend\\db.js",
               "RelativeDocumentMoniker": "db.js",
@@ -62,12 +91,11 @@
               "RelativeToolTip": "db.js",
               "ViewState": "AgIAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA==",
               "Icon": "ae27a6b0-e345-4288-96df-5eaf394ee369.001646|",
-              "WhenOpened": "2026-03-13T16:52:46.074Z",
-              "EditorCaption": ""
+              "WhenOpened": "2026-03-13T16:52:46.074Z"
             },
             {
               "$type": "Document",
-              "DocumentIndex": 2,
+              "DocumentIndex": 3,
               "Title": "migrate_producers.js",
               "DocumentMoniker": "C:\\Users\\maria\\Documents\\empagij-backend\\migrate_producers.js",
               "RelativeDocumentMoniker": "migrate_producers.js",
@@ -75,12 +103,11 @@
               "RelativeToolTip": "migrate_producers.js",
               "ViewState": "AgIAAAAAAAAAAAAAAAAUwBcAAAADAAAAAAAAAA==",
               "Icon": "ae27a6b0-e345-4288-96df-5eaf394ee369.001646|",
-              "WhenOpened": "2026-03-11T16:50:20.681Z",
-              "EditorCaption": ""
+              "WhenOpened": "2026-03-11T16:50:20.681Z"
             },
             {
               "$type": "Document",
-              "DocumentIndex": 5,
+              "DocumentIndex": 6,
               "Title": ".env",
               "DocumentMoniker": "C:\\Users\\maria\\Documents\\empagij-backend\\.env",
               "RelativeDocumentMoniker": ".env",
@@ -92,20 +119,7 @@
             },
             {
               "$type": "Document",
-              "DocumentIndex": 0,
-              "Title": "index.js",
-              "DocumentMoniker": "C:\\Users\\maria\\Documents\\empagij-backend\\index.js",
-              "RelativeDocumentMoniker": "index.js",
-              "ToolTip": "C:\\Users\\maria\\Documents\\empagij-backend\\index.js",
-              "RelativeToolTip": "index.js",
-              "ViewState": "AgIAANUAAAAAAAAAAAAqwPgAAAADAAAAAAAAAA==",
-              "Icon": "ae27a6b0-e345-4288-96df-5eaf394ee369.001646|",
-              "WhenOpened": "2026-03-11T15:19:25.155Z",
-              "EditorCaption": ""
-            },
-            {
-              "$type": "Document",
-              "DocumentIndex": 4,
+              "DocumentIndex": 5,
               "Title": "migrate_richieste.js",
               "DocumentMoniker": "C:\\Users\\maria\\Documents\\empagij-backend\\migrate_richieste.js",
               "RelativeDocumentMoniker": "migrate_richieste.js",
