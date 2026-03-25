@@ -429,12 +429,12 @@ app.post("/circles/:id/invite", async (req, res) => {
             [circle_id]
         );
         // 1. Conta membri attuali della cerchia
-const [members] = await db.query(
+const [membersCount] = await db.query(
   "SELECT COUNT(*) as count FROM circle_members WHERE circle_id = ?",
   [circle_id]
 );
 
-if (members[0].count >= 5) {
+if (membersCount[0].count >= 5) {
   await db.end();
   return res.status(400).json({
     ok: false,
