@@ -428,6 +428,19 @@ app.post("/circles/:id/invite", async (req, res) => {
             "SELECT id FROM circles WHERE id = ? LIMIT 1",
             [circle_id]
         );
+        // 1. Conta membri attuali della cerchia
+const [members] = await db.query(
+  "SELECT COUNT(*) as count FROM circle_members WHERE circle_id = ?",
+  [circle_id]
+);
+
+if (members[0].count >= 5) {
+  await db.end();
+  return res.status(400).json({
+    ok: false,
+    error: "Limite cerchia raggiunto (max 5 membri)"
+  });
+}
 
         if (!circles || circles.length === 0) {
             await db.end();
@@ -510,6 +523,8 @@ const [rows] = await db.query(
 });
 // Accetta invito
 app.post("/invites/:id/accept", async (req, res) => {
+    let db;
+
     try {
         const { id: inviteId } = req.params;
         const userId = req.header("x-user-id");
@@ -518,51 +533,135 @@ app.post("/invites/:id/accept", async (req, res) => {
             return res.status(401).json({ ok: false, error: "Missing x-user-id" });
         }
 
-        const db = await getDb();
+        db = await getDb();
+        await db.beginTransaction();
 
-        const [invites] = await db.query(
-            `SELECT * FROM circle_invites
-             WHERE id = ? AND status = 'pending'
-             LIMIT 1`,
+        // 1) blocca utente loggato e recupera email
+        const [userRows] = await db.query(
+            `SELECT id, email
+             FROM users
+             WHERE id = ?
+             LIMIT 1
+             FOR UPDATE`,
+            [userId]
+        );
+
+        if (!userRows || userRows.length === 0) {
+            await db.rollback();
+            await db.end();
+            return res.status(404).json({ ok: false, error: "User not found" });
+        }
+
+        const user = userRows[0];
+
+        // 2) blocca invito
+        const [inviteRows] = await db.query(
+            `SELECT *
+             FROM circle_invites
+             WHERE id = ?
+             LIMIT 1
+             FOR UPDATE`,
             [inviteId]
         );
 
-        if (!invites || invites.length === 0) {
+        if (!inviteRows || inviteRows.length === 0) {
+            await db.rollback();
             await db.end();
             return res.status(404).json({ ok: false, error: "Invite not found" });
         }
 
-        const invite = invites[0];
+        const invite = inviteRows[0];
 
-        const [alreadyMember] = await db.query(
-            `SELECT id FROM circle_members
-             WHERE circle_id = ? AND user_id = ?
-             LIMIT 1`,
-            [invite.circle_id, userId]
+        if (invite.status !== "pending") {
+            await db.rollback();
+            await db.end();
+            return res.status(409).json({ ok: false, error: "Invite is not pending" });
+        }
+
+        // 3) verifica che l'invito appartenga davvero all'utente loggato
+        const userEmail = String(user.email || "").trim().toLowerCase();
+        const inviteEmail = String(invite.invitee_email || "").trim().toLowerCase();
+
+        if (!userEmail || userEmail !== inviteEmail) {
+            await db.rollback();
+            await db.end();
+            return res.status(403).json({ ok: false, error: "This invite does not belong to the current user" });
+        }
+
+        // 4) blocca la cerchia
+        const [circleRows] = await db.query(
+            `SELECT id
+             FROM circles
+             WHERE id = ?
+             LIMIT 1
+             FOR UPDATE`,
+            [invite.circle_id]
         );
 
-        if (alreadyMember && alreadyMember.length > 0) {
+        if (!circleRows || circleRows.length === 0) {
+            await db.rollback();
+            await db.end();
+            return res.status(404).json({ ok: false, error: "Circle not found" });
+        }
+
+        // 5) blocca i membri della cerchia e conta i membri reali
+        const [memberRows] = await db.query(
+            `SELECT id, user_id
+             FROM circle_members
+             WHERE circle_id = ?
+             FOR UPDATE`,
+            [invite.circle_id]
+        );
+
+        const memberCount = Array.isArray(memberRows) ? memberRows.length : 0;
+
+        if (memberCount >= 5) {
+            await db.rollback();
+            await db.end();
+            return res.status(409).json({
+                ok: false,
+                error: "Circle full (max 5 members)",
+            });
+        }
+
+        // 6) verifica che l'utente non sia già membro
+        const alreadyMember = memberRows.some((m) => m.user_id === userId);
+
+        if (alreadyMember) {
+            await db.rollback();
             await db.end();
             return res.status(409).json({ ok: false, error: "Already a member" });
         }
 
+        // 7) inserisce membro
         await db.query(
             `INSERT INTO circle_members (id, circle_id, user_id, role, status)
              VALUES (?, ?, ?, 'member', 'active')`,
             [crypto.randomUUID(), invite.circle_id, userId]
         );
 
+        // 8) aggiorna invito
         await db.query(
             `UPDATE circle_invites
-             SET status = 'accepted', invitee_user_id = ?, accepted_at = NOW()
+             SET status = 'accepted',
+                 invitee_user_id = ?,
+                 accepted_at = NOW()
              WHERE id = ?`,
             [userId, inviteId]
         );
 
+        await db.commit();
         await db.end();
 
         return res.json({ ok: true });
     } catch (err) {
+        try {
+            if (db) {
+                await db.rollback();
+                await db.end();
+            }
+        } catch (_) {}
+
         console.error("ACCEPT INVITE ERROR:", err);
         return res.status(500).json({ ok: false, error: String(err) });
     }
