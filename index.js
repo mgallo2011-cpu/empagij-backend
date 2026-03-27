@@ -1615,15 +1615,11 @@ app.post("/richieste", async (req, res) => {
         return res.status(500).json({ ok: false, error: String(err) });
     }
 });
-app.get("/richieste", async (req, res) => {
+app.get("/richieste", authMiddleware, async (req, res) => {
     console.log("GET /richieste HIT", req.query);
     try {
         const { circle_id } = req.query;
-        const userId = req.header("x-user-id");
-
-        if (!userId) {
-            return res.status(401).json({ ok: false, error: "Missing x-user-id" });
-        }
+        const userId = req.user.id;
 
         if (!circle_id) {
             return res.status(400).json({ ok: false, error: "Missing circle_id" });
