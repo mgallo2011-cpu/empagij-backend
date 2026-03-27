@@ -683,13 +683,10 @@ if (countRows[0].count >= 3) {
     }
 });
 // Lista cerchie dell'utente
-app.get("/circles/mine", async (req, res) => {
+app.get("/circles/mine", authMiddleware, async (req, res) => {
     try {
-        const userId = req.header("x-user-id");
-
-        if (!userId) {
-            return res.status(401).json({ ok: false, error: "Missing x-user-id" });
-        }
+        console.log("JWT CIRCLES MINE OK", req.user);
+        const userId = req.user.id;
 
         const db = await getDb();
 
