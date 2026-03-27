@@ -87,6 +87,118 @@ async function ensureCircleInvitesTable() {
 
     await db.end();
 }
+async function ensurePassaggiTable() {
+    const db = await getDb();
+
+    await db.query(`
+        CREATE TABLE IF NOT EXISTS passaggi (
+            id VARCHAR(191) NOT NULL PRIMARY KEY,
+            circle_id VARCHAR(191) NOT NULL,
+            from_user_id VARCHAR(191) NOT NULL,
+            from_name VARCHAR(191) NOT NULL,
+            producer_id VARCHAR(191) NOT NULL,
+            producer_name VARCHAR(191) NOT NULL,
+            producer_category VARCHAR(191) NOT NULL,
+            when_label VARCHAR(50) NOT NULL,
+            date_iso VARCHAR(50) NULL,
+            note TEXT NULL,
+            status VARCHAR(50) NOT NULL DEFAULT 'in_corso',
+            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+            updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+            INDEX idx_passaggi_circle_id (circle_id),
+            INDEX idx_passaggi_from_user_id (from_user_id),
+            INDEX idx_passaggi_status (status)
+        )
+    `);
+
+    const [circleIdCols] = await db.query(`
+        SELECT COLUMN_NAME
+        FROM INFORMATION_SCHEMA.COLUMNS
+        WHERE TABLE_SCHEMA = DATABASE()
+          AND TABLE_NAME = 'passaggi'
+          AND COLUMN_NAME = 'circle_id'
+        LIMIT 1
+    `);
+
+    if (!circleIdCols || circleIdCols.length === 0) {
+        await db.query(`
+            ALTER TABLE passaggi
+            ADD COLUMN circle_id VARCHAR(191) NOT NULL AFTER id
+        `);
+
+        await db.query(`
+            ALTER TABLE passaggi
+            ADD INDEX idx_passaggi_circle_id (circle_id)
+        `);
+    }
+
+    await db.end();
+}
+async function ensureRichiesteTable() {
+    const db = await getDb();
+
+    await db.query(`
+        CREATE TABLE IF NOT EXISTS richieste (
+            id VARCHAR(191) NOT NULL PRIMARY KEY,
+            circle_id VARCHAR(191) NOT NULL,
+            from_user_id VARCHAR(191) NOT NULL,
+            from_name VARCHAR(191) NOT NULL,
+            producer_id VARCHAR(191) NOT NULL,
+            producer_name VARCHAR(191) NOT NULL,
+            request_text TEXT NOT NULL,
+            status VARCHAR(50) NOT NULL DEFAULT 'open',
+            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+            updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+            INDEX idx_richieste_circle_id (circle_id),
+            INDEX idx_richieste_from_user_id (from_user_id),
+            INDEX idx_richieste_status (status)
+        )
+    `);
+
+    const [circleIdCols] = await db.query(`
+        SELECT COLUMN_NAME
+        FROM INFORMATION_SCHEMA.COLUMNS
+        WHERE TABLE_SCHEMA = DATABASE()
+          AND TABLE_NAME = 'richieste'
+          AND COLUMN_NAME = 'circle_id'
+        LIMIT 1
+    `);
+
+    if (!circleIdCols || circleIdCols.length === 0) {
+        await db.query(`
+            ALTER TABLE richieste
+            ADD COLUMN circle_id VARCHAR(191) NOT NULL AFTER id
+        `);
+
+        await db.query(`
+            ALTER TABLE richieste
+            ADD INDEX idx_richieste_circle_id (circle_id)
+        `);
+    }
+
+    await db.end();
+}
+async function ensureRichiestaTargetsTable() {
+    const db = await getDb();
+
+    await db.query(`
+        CREATE TABLE IF NOT EXISTS richiesta_targets (
+            id VARCHAR(191) NOT NULL PRIMARY KEY,
+            richiesta_id VARCHAR(191) NOT NULL,
+            target_user_id VARCHAR(191) NOT NULL,
+            status VARCHAR(50) NOT NULL DEFAULT 'pending',
+            responded_at TIMESTAMP NULL DEFAULT NULL,
+            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+            updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+            UNIQUE KEY uniq_richiesta_target (richiesta_id, target_user_id),
+            INDEX idx_richiesta_targets_richiesta_id (richiesta_id),
+            INDEX idx_richiesta_targets_target_user_id (target_user_id),
+            INDEX idx_richiesta_targets_status (status)
+        )
+    `);
+
+    await db.end();
+}
 const bcrypt = require("bcryptjs");
 const app = express();
 
@@ -290,8 +402,26 @@ app.post("/auth/login", async (req, res) => {
 app.get("/circles/:id/members", async (req, res) => {
     try {
         const { id } = req.params;
+        const userId = req.header("x-user-id");
+
+        if (!userId) {
+            return res.status(401).json({ ok: false, error: "Missing x-user-id" });
+        }
 
         const db = await getDb();
+
+        const [membershipRows] = await db.query(
+            `SELECT id
+             FROM circle_members
+             WHERE circle_id = ? AND user_id = ?
+             LIMIT 1`,
+            [id, userId]
+        );
+
+        if (!membershipRows || membershipRows.length === 0) {
+            await db.end();
+            return res.status(403).json({ ok: false, error: "Not a member of this circle" });
+        }
 
         const [rows] = await db.query(
             `
@@ -316,17 +446,30 @@ app.get("/circles/:id/members", async (req, res) => {
 // Crea una nuova cerchia
 app.post("/circles", async (req, res) => {
     try {
-        const { name, owner_user_id } = req.body || {};
+        const { name } = req.body || {};
+        const owner_user_id = req.header("x-user-id");
 
         if (!name || !owner_user_id) {
             return res.status(400).json({
                 ok: false,
-                error: "Missing name/owner_user_id",
+                error: "Missing name/x-user-id",
             });
         }
 
         const db = await getDb();
+        // limite: max 3 cerchie per utente
+const [countRows] = await db.query(
+    "SELECT COUNT(*) as count FROM circles WHERE owner_user_id = ?",
+    [owner_user_id]
+);
 
+if (countRows[0].count >= 3) {
+    await db.end();
+    return res.status(400).json({
+        ok: false,
+        error: "Limite cerchie raggiunto (max 3)"
+    });
+}
         const circleId = crypto.randomUUID();
 
         // crea cerchia
@@ -382,30 +525,7 @@ app.get("/circles/mine", async (req, res) => {
     }
 });
 // Membri di una cerchia
-app.get("/circles/:id/members", async (req, res) => {
-    try {
-        const { id } = req.params;
 
-        const db = await getDb();
-
-        const [rows] = await db.query(
-            `
-            SELECT u.id, u.name, u.email, cm.role
-            FROM circle_members cm
-            JOIN users u ON u.id = cm.user_id
-            WHERE cm.circle_id = ?
-            `,
-            [id]
-        );
-
-        await db.end();
-
-        return res.json({ ok: true, members: rows });
-    } catch (err) {
-        console.error("GET MEMBERS ERROR:", err);
-        return res.status(500).json({ ok: false, error: String(err) });
-    }
-});
 // Invita utente via email in una cerchia
 app.post("/circles/:id/invite", async (req, res) => {
     try {
@@ -457,7 +577,37 @@ if (membersCount[0].count >= 5) {
             await db.end();
             return res.status(403).json({ ok: false, error: "Not a member of this circle" });
         }
+        const normalizedInviteeEmail = String(invitee_email).trim().toLowerCase();
+        const [usersByEmail] = await db.query(
+    "SELECT id, email FROM users WHERE email = ? LIMIT 1",
+    [normalizedInviteeEmail]
+);
 
+if (!usersByEmail || usersByEmail.length === 0) {
+    await db.end();
+    return res.status(404).json({
+        ok: false,
+        error: "User not found",
+    });
+}
+
+const [existingPendingInvites] = await db.query(
+    `SELECT id
+     FROM circle_invites
+     WHERE circle_id = ?
+       AND invitee_email = ?
+       AND status = 'pending'
+     LIMIT 1`,
+    [circle_id, normalizedInviteeEmail]
+);
+
+if (existingPendingInvites && existingPendingInvites.length > 0) {
+    await db.end();
+    return res.status(409).json({
+        ok: false,
+        error: "Esiste già un invito pendente per questa email",
+    });
+}
         const id = crypto.randomUUID();
         const token = crypto.randomUUID();
 
@@ -465,7 +615,7 @@ if (membersCount[0].count >= 5) {
             `INSERT INTO circle_invites
       (id, circle_id, invited_by_user_id, invitee_email, token, status)
       VALUES (?, ?, ?, ?, ?, ?)`,
-            [id, circle_id, invited_by_user_id, invitee_email, token, "pending"]
+            [id, circle_id, invited_by_user_id, normalizedInviteeEmail, token, "pending"]
         );
 
         await db.end();
@@ -554,6 +704,23 @@ app.post("/invites/:id/accept", async (req, res) => {
 
         const user = userRows[0];
 
+        const [userCircleRows] = await db.query(
+    `SELECT COUNT(*) AS count
+     FROM circle_members
+     WHERE user_id = ?`,
+    [userId]
+);
+
+const userCircleCount = Number(userCircleRows?.[0]?.count || 0);
+
+if (userCircleCount >= 3) {
+    await db.rollback();
+    await db.end();
+    return res.status(409).json({
+        ok: false,
+        error: "User already belongs to the maximum number of circles (max 3)",
+    });
+}
         // 2) blocca invito
         const [inviteRows] = await db.query(
             `SELECT *
@@ -666,31 +833,127 @@ app.post("/invites/:id/accept", async (req, res) => {
         return res.status(500).json({ ok: false, error: String(err) });
     }
 });
+app.post("/invites/:id/decline", async (req, res) => {
+    try {
+        const { id: inviteId } = req.params;
+        const userId = req.header("x-user-id");
+
+        if (!userId) {
+            return res.status(401).json({ ok: false, error: "Missing x-user-id" });
+        }
+
+        const db = await getDb();
+
+        const [userRows] = await db.query(
+            "SELECT email FROM users WHERE id = ? LIMIT 1",
+            [userId]
+        );
+
+        if (!userRows || userRows.length === 0) {
+            await db.end();
+            return res.status(404).json({ ok: false, error: "User not found" });
+        }
+
+        const userEmail = String(userRows[0].email || "").trim().toLowerCase();
+
+        const [inviteRows] = await db.query(
+            `SELECT id, invitee_email, status
+             FROM circle_invites
+             WHERE id = ?
+             LIMIT 1`,
+            [inviteId]
+        );
+
+        if (!inviteRows || inviteRows.length === 0) {
+            await db.end();
+            return res.status(404).json({ ok: false, error: "Invite not found" });
+        }
+
+        const invite = inviteRows[0];
+        const inviteEmail = String(invite.invitee_email || "").trim().toLowerCase();
+
+        if (invite.status !== "pending") {
+            await db.end();
+            return res.status(409).json({ ok: false, error: "Invite is not pending" });
+        }
+
+        if (!userEmail || userEmail !== inviteEmail) {
+            await db.end();
+            return res.status(403).json({ ok: false, error: "This invite does not belong to the current user" });
+        }
+
+        await db.query(
+            `UPDATE circle_invites
+             SET status = 'declined'
+             WHERE id = ?`,
+            [inviteId]
+        );
+
+        await db.end();
+
+        return res.json({ ok: true });
+    } catch (err) {
+        console.error("DECLINE INVITE ERROR:", err);
+        return res.status(500).json({ ok: false, error: String(err) });
+    }
+});
 // ===== PASSAGGI =====
 
 // Lista passaggi (per ora tutti)
 app.get("/passaggi", async (req, res) => {
     try {
+        const userId = req.header("x-user-id");
+        const { circle_id } = req.query || {};
+
+        if (!userId) {
+            return res.status(401).json({ ok: false, error: "Missing x-user-id" });
+        }
+
+        if (!circle_id) {
+            return res.status(400).json({ ok: false, error: "Missing circle_id" });
+        }
+
         const db = await getDb();
-        const [rows] = await db.query(
-            "SELECT * FROM passaggi ORDER BY created_at DESC"
+
+        const [membershipRows] = await db.query(
+            `SELECT id
+             FROM circle_members
+             WHERE circle_id = ? AND user_id = ?
+             LIMIT 1`,
+            [circle_id, userId]
         );
+
+        if (!membershipRows || membershipRows.length === 0) {
+            await db.end();
+            return res.status(403).json({ ok: false, error: "Not a member of this circle" });
+        }
+
+        const [rows] = await db.query(
+            `SELECT *
+             FROM passaggi
+             WHERE circle_id = ?
+             ORDER BY created_at DESC`,
+            [circle_id]
+        );
+
         await db.end();
+
         return res.json({ ok: true, items: rows });
-   } catch (err) {
-  console.error("REGISTER ERROR:", err);
-  return res.status(500).json({
-    ok: false,
-    error: String(err),
-    detail: err && err.message ? err.message : null
-  });
-}
+    } catch (err) {
+        console.error("GET PASSAGGI ERROR:", err);
+        return res.status(500).json({
+            ok: false,
+            error: String(err),
+            detail: err && err.message ? err.message : null
+        });
+    }
 });
 
 // Crea passaggio
 app.post("/passaggi", async (req, res) => {
     try {
         const {
+            circle_id,
             from_user_id,
             from_name,
             producer_id,
@@ -705,7 +968,7 @@ app.post("/passaggi", async (req, res) => {
         const id = crypto.randomUUID();
 
         if (
-            !id ||
+            !circle_id ||
             !from_user_id ||
             !from_name ||
             !producer_id ||
@@ -718,12 +981,28 @@ app.post("/passaggi", async (req, res) => {
 
         const db = await getDb();
 
+        const [membershipRows] = await db.query(
+    `SELECT id
+     FROM circle_members
+     WHERE circle_id = ? AND user_id = ?
+     LIMIT 1`,
+    [circle_id, from_user_id]
+);
+
+if (!membershipRows || membershipRows.length === 0) {
+    await db.end();
+    return res.status(403).json({
+        ok: false,
+        error: "User is not a member of this circle",
+    });
+}
         await db.query(
             `INSERT INTO passaggi
-      (id, from_user_id, from_name, producer_id, producer_name, producer_category, when_label, date_iso, note, status)
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+            (id, circle_id, from_user_id, from_name, producer_id, producer_name, producer_category, when_label, date_iso, note, status)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
             [
                 id,
+                circle_id,
                 from_user_id,
                 from_name,
                 producer_id,
@@ -1009,22 +1288,34 @@ app.post("/admin/reset-demo", async (req, res) => {
 
 // Crea richiesta
 app.post("/richieste", async (req, res) => {
+    console.log("POST /richieste HIT", req.body);
+    let db;
+
     try {
+        const userId = req.header("x-user-id");
         const {
+            circle_id,
             from_user_id,
             from_name,
             producer_id,
             producer_name,
             request_text,
-            status,
+            target_user_ids,
         } = req.body || {};
 
+        if (!userId) {
+            return res.status(401).json({ ok: false, error: "Missing x-user-id" });
+        }
+
         if (
+            !circle_id ||
             !from_user_id ||
             !from_name ||
             !producer_id ||
             !producer_name ||
-            !request_text
+            !request_text ||
+            !Array.isArray(target_user_ids) ||
+            target_user_ids.length === 0
         ) {
             return res.status(400).json({
                 ok: false,
@@ -1032,34 +1323,159 @@ app.post("/richieste", async (req, res) => {
             });
         }
 
-        const db = await getDb();
+        if (userId !== from_user_id) {
+            return res.status(403).json({
+                ok: false,
+                error: "x-user-id and from_user_id do not match",
+            });
+        }
 
-        const id = crypto.randomUUID();
+        const cleanTargetUserIds = [...new Set(
+            target_user_ids
+                .map((x) => String(x || "").trim())
+                .filter(Boolean)
+        )];
+
+        if (cleanTargetUserIds.length === 0) {
+            return res.status(400).json({
+                ok: false,
+                error: "No valid target_user_ids",
+            });
+        }
+
+        db = await getDb();
+        await db.beginTransaction();
+
+        const [memberRows] = await db.query(
+            `SELECT user_id
+             FROM circle_members
+             WHERE circle_id = ?`,
+            [circle_id]
+        );
+
+        const memberIds = new Set((memberRows || []).map((m) => m.user_id));
+
+        if (!memberIds.has(userId)) {
+            await db.rollback();
+            await db.end();
+            return res.status(403).json({
+                ok: false,
+                error: "User is not a member of this circle",
+            });
+        }
+
+        for (const targetUserId of cleanTargetUserIds) {
+            if (!memberIds.has(targetUserId)) {
+                await db.rollback();
+                await db.end();
+                return res.status(400).json({
+                    ok: false,
+                    error: `Target user not in circle: ${targetUserId}`,
+                });
+            }
+
+            if (targetUserId === userId) {
+                await db.rollback();
+                await db.end();
+                return res.status(400).json({
+                    ok: false,
+                    error: "You cannot send a request to yourself",
+                });
+            }
+        }
+
+        const richiestaId = crypto.randomUUID();
 
         await db.query(
             `INSERT INTO richieste
-      (id, from_user_id, from_name, producer_id, producer_name, request_text, status)
-      VALUES (?, ?, ?, ?, ?, ?, ?)`,
+            (id, circle_id, from_user_id, from_name, producer_id, producer_name, request_text, status)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
             [
-                id,
+                richiestaId,
+                circle_id,
                 from_user_id,
                 from_name,
                 producer_id,
                 producer_name,
-                request_text,
-                status || "aperta",
+                String(request_text).trim(),
+                "open",
             ]
         );
 
+        for (const targetUserId of cleanTargetUserIds) {
+            await db.query(
+                `INSERT INTO richiesta_targets
+                (id, richiesta_id, target_user_id, status)
+                VALUES (?, ?, ?, ?)`,
+                [crypto.randomUUID(), richiestaId, targetUserId, "pending"]
+            );
+        }
+
+        await db.commit();
         await db.end();
 
-        return res.json({ ok: true, id });
+        return res.json({ ok: true, id: richiestaId });
     } catch (err) {
+        try {
+            if (db) {
+                await db.rollback();
+                await db.end();
+            }
+        } catch (_) {}
+
         console.error("CREATE RICHIESTA ERROR:", err);
-        return res.status(500).json({
-            ok: false,
-            error: String(err),
-        });
+        return res.status(500).json({ ok: false, error: String(err) });
+    }
+});
+app.get("/richieste", async (req, res) => {
+    console.log("GET /richieste HIT", req.query);
+    try {
+        const { circle_id } = req.query;
+        const userId = req.header("x-user-id");
+
+        if (!userId) {
+            return res.status(401).json({ ok: false, error: "Missing x-user-id" });
+        }
+
+        if (!circle_id) {
+            return res.status(400).json({ ok: false, error: "Missing circle_id" });
+        }
+
+        const db = await getDb();
+
+        // verifica che l'utente sia membro della cerchia
+        const [members] = await db.query(
+            "SELECT id FROM circle_members WHERE circle_id = ? AND user_id = ? LIMIT 1",
+            [circle_id, userId]
+        );
+
+        if (!members || members.length === 0) {
+            await db.end();
+            return res.status(403).json({ ok: false, error: "Not a member of this circle" });
+        }
+
+       const [rows] = await db.query(
+    `
+    SELECT
+        r.*,
+        GROUP_CONCAT(u.name SEPARATOR ', ') AS target_names,
+        GROUP_CONCAT(rt.target_user_id SEPARATOR ',') AS target_user_ids
+    FROM richieste r
+    LEFT JOIN richiesta_targets rt ON rt.richiesta_id = r.id
+    LEFT JOIN users u ON u.id = rt.target_user_id
+    WHERE r.circle_id = ?
+    GROUP BY r.id
+    ORDER BY r.created_at DESC
+    `,
+    [circle_id]
+);
+
+        await db.end();
+
+        return res.json({ ok: true, items: rows });
+    } catch (err) {
+        console.error("GET RICHIESTE ERROR:", err);
+        return res.status(500).json({ ok: false, error: String(err) });
     }
 });
 process.on("uncaughtException", (err) => {
@@ -1074,6 +1490,9 @@ Promise.all([
     ensureCirclesTable(),
     ensureCircleMembersTable(),
     ensureCircleInvitesTable(),
+    ensurePassaggiTable(),
+    ensureRichiesteTable(),
+    ensureRichiestaTargetsTable(),
 ])
     .then(() => {
         console.log("Users/Circles tables check OK");
