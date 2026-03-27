@@ -441,6 +441,146 @@ app.get("/circles/:id/members", async (req, res) => {
         return res.status(500).json({ ok: false, error: String(err) });
     }
 });
+app.delete("/circles/:circleId/members/:memberUserId", async (req, res) => {
+    let db;
+
+    try {
+        const { circleId, memberUserId } = req.params;
+        const userId = req.header("x-user-id");
+
+        if (!userId) {
+            return res.status(401).json({ ok: false, error: "Missing x-user-id" });
+        }
+
+        db = await getDb();
+        await db.beginTransaction();
+
+        const [circleRows] = await db.query(
+            `SELECT id, owner_user_id
+             FROM circles
+             WHERE id = ?
+             LIMIT 1`,
+            [circleId]
+        );
+
+        if (!circleRows || circleRows.length === 0) {
+            await db.rollback();
+            await db.end();
+            return res.status(404).json({ ok: false, error: "Circle not found" });
+        }
+
+        const circle = circleRows[0];
+
+        if (circle.owner_user_id !== userId) {
+            await db.rollback();
+            await db.end();
+            return res.status(403).json({ ok: false, error: "Only the owner can remove members" });
+        }
+
+        if (memberUserId === userId) {
+            await db.rollback();
+            await db.end();
+            return res.status(400).json({ ok: false, error: "Owner cannot remove themselves" });
+        }
+
+        const [memberRows] = await db.query(
+            `SELECT id
+             FROM circle_members
+             WHERE circle_id = ? AND user_id = ?
+             LIMIT 1`,
+            [circleId, memberUserId]
+        );
+
+        if (!memberRows || memberRows.length === 0) {
+            await db.rollback();
+            await db.end();
+            return res.status(404).json({ ok: false, error: "Member not found in this circle" });
+        }
+
+        await db.query(
+            `DELETE FROM circle_members
+             WHERE circle_id = ? AND user_id = ?`,
+            [circleId, memberUserId]
+        );
+
+        const [remainingRows] = await db.query(
+            `SELECT user_id
+             FROM circle_members
+             WHERE circle_id = ?`,
+            [circleId]
+        );
+
+        const remainingCount = Array.isArray(remainingRows) ? remainingRows.length : 0;
+
+        // Se resta solo l'owner, eliminiamo tutta la cerchia e tutti i dati collegati
+        if (remainingCount <= 1) {
+            await db.query(
+                `DELETE rt
+                 FROM richiesta_targets rt
+                 INNER JOIN richieste r ON r.id = rt.richiesta_id
+                 WHERE r.circle_id = ?`,
+                [circleId]
+            );
+
+            await db.query(
+                `DELETE FROM richieste
+                 WHERE circle_id = ?`,
+                [circleId]
+            );
+
+            await db.query(
+                `DELETE FROM passaggi
+                 WHERE circle_id = ?`,
+                [circleId]
+            );
+
+            await db.query(
+                `DELETE FROM circle_invites
+                 WHERE circle_id = ?`,
+                [circleId]
+            );
+
+            await db.query(
+                `DELETE FROM circle_members
+                 WHERE circle_id = ?`,
+                [circleId]
+            );
+
+            await db.query(
+                `DELETE FROM circles
+                 WHERE id = ?`,
+                [circleId]
+            );
+
+            await db.commit();
+            await db.end();
+
+            return res.json({
+                ok: true,
+                circle_deleted: true,
+            });
+        }
+
+        await db.commit();
+        await db.end();
+
+        return res.json({
+            ok: true,
+            circle_deleted: false,
+        });
+    } catch (err) {
+        try {
+            if (db) {
+                await db.rollback();
+                await db.end();
+            }
+        } catch (_) {}
+
+        console.error("REMOVE CIRCLE MEMBER ERROR:", err);
+        return res.status(500).json({ ok: false, error: String(err) });
+    }
+});
+
 // ===== CERCHIE =====
 
 // Crea una nuova cerchia
