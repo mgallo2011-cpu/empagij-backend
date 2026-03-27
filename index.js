@@ -200,8 +200,52 @@ async function ensureRichiestaTargetsTable() {
     await db.end();
 }
 const bcrypt = require("bcryptjs");
+const jwt = require("jsonwebtoken");
 const app = express();
 
+const JWT_SECRET = process.env.JWT_SECRET || "empagij_dev_secret_change_me";
+const JWT_EXPIRES_IN = "7d";
+
+function createAuthToken(user) {
+    return jwt.sign(
+        {
+            sub: user.id,
+            email: user.email,
+            name: user.name,
+        },
+        JWT_SECRET,
+        { expiresIn: JWT_EXPIRES_IN }
+    );
+}
+
+function authMiddleware(req, res, next) {
+    try {
+        const authHeader = req.header("authorization") || "";
+        const [scheme, token] = authHeader.split(" ");
+
+        if (scheme !== "Bearer" || !token) {
+            return res.status(401).json({
+                ok: false,
+                error: "Missing or invalid Authorization header",
+            });
+        }
+
+        const decoded = jwt.verify(token, JWT_SECRET);
+
+        req.user = {
+            id: decoded.sub,
+            email: decoded.email,
+            name: decoded.name,
+        };
+
+        return next();
+    } catch (err) {
+        return res.status(401).json({
+            ok: false,
+            error: "Invalid or expired token",
+        });
+    }
+}
 app.use(cors());
 app.use(express.json());
 
@@ -383,17 +427,21 @@ app.post("/auth/login", async (req, res) => {
             return res.status(401).json({ ok: false, error: "Invalid credentials" });
         }
 
-        // Per ora: ritorniamo solo l'utente (niente token ancora)
-        return res.json({
-            ok: true,
-            user: {
-                id: user.id,
-                name: user.name,
-                email: user.email,
-                province_code: user.province_code,
-                province_name: user.province_name,
-            },
-        });
+        const safeUser = {
+    id: user.id,
+    name: user.name,
+    email: user.email,
+    province_code: user.province_code,
+    province_name: user.province_name,
+};
+
+const token = createAuthToken(safeUser);
+
+return res.json({
+    ok: true,
+    token,
+    user: safeUser,
+});
     } catch (err) {
         return res.status(500).json({ ok: false, error: String(err) });
     }
