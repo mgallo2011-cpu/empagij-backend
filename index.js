@@ -1725,6 +1725,24 @@ app.get("/admin/circle-pending-invites/:circleId", async (req, res) => {
         return res.status(500).json({ ok: false, error: String(err) });
     }
 });
+app.post("/admin/delete-invite/:id", async (req, res) => {
+    try {
+        const { id } = req.params;
+        const db = await getDb();
+
+        await db.query(
+            `DELETE FROM circle_invites WHERE id = ?`,
+            [id]
+        );
+
+        await db.end();
+
+        return res.json({ ok: true });
+    } catch (err) {
+        console.error("DELETE INVITE ERROR:", err);
+        return res.status(500).json({ ok: false, error: String(err) });
+    }
+});
 Promise.all([
     ensureUsersTable(),
     ensureCirclesTable(),
