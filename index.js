@@ -1462,50 +1462,37 @@ app.post("/admin/reset-demo", async (req, res) => {
 // ===== RICHIESTE =====
 
 // Crea richiesta
-app.post("/richieste", async (req, res) => {
+app.post("/richieste", authMiddleware, async (req, res) => {
     console.log("POST /richieste HIT", req.body);
     let db;
 
     try {
-        const userId = req.header("x-user-id");
+        const userId = req.user.id;
         const {
-            circle_id,
-            from_user_id,
-            from_name,
-            producer_id,
-            producer_name,
-            request_text,
-            target_user_ids,
-        } = req.body || {};
-
-        if (!userId) {
-            return res.status(401).json({ ok: false, error: "Missing x-user-id" });
-        }
+    circle_id,
+    from_name,
+    producer_id,
+    producer_name,
+    request_text,
+    target_user_ids,
+} = req.body || {};
 
         if (
-            !circle_id ||
-            !from_user_id ||
-            !from_name ||
-            !producer_id ||
-            !producer_name ||
-            !request_text ||
-            !Array.isArray(target_user_ids) ||
-            target_user_ids.length === 0
-        ) {
+    !circle_id ||
+    !from_name ||
+    !producer_id ||
+    !producer_name ||
+    !request_text ||
+    !Array.isArray(target_user_ids) ||
+    target_user_ids.length === 0
+) {
             return res.status(400).json({
                 ok: false,
                 error: "Missing required fields",
             });
         }
 
-        if (userId !== from_user_id) {
-            return res.status(403).json({
-                ok: false,
-                error: "x-user-id and from_user_id do not match",
-            });
-        }
-
-        const cleanTargetUserIds = [...new Set(
+            const cleanTargetUserIds = [...new Set(
             target_user_ids
                 .map((x) => String(x || "").trim())
                 .filter(Boolean)
@@ -1566,15 +1553,15 @@ app.post("/richieste", async (req, res) => {
             (id, circle_id, from_user_id, from_name, producer_id, producer_name, request_text, status)
             VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
             [
-                richiestaId,
-                circle_id,
-                from_user_id,
-                from_name,
-                producer_id,
-                producer_name,
-                String(request_text).trim(),
-                "open",
-            ]
+    richiestaId,
+    circle_id,
+    userId,
+    from_name,
+    producer_id,
+    producer_name,
+    String(request_text).trim(),
+    "open",
+]
         );
 
         for (const targetUserId of cleanTargetUserIds) {
