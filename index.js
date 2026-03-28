@@ -628,17 +628,17 @@ app.delete("/circles/:circleId/members/:memberUserId", async (req, res) => {
 // ===== CERCHIE =====
 
 // Crea una nuova cerchia
-app.post("/circles", async (req, res) => {
+app.post("/circles", authMiddleware, async (req, res) => {
     try {
         const { name } = req.body || {};
-        const owner_user_id = req.header("x-user-id");
+        const owner_user_id = req.user.id;
 
-        if (!name || !owner_user_id) {
-            return res.status(400).json({
-                ok: false,
-                error: "Missing name/x-user-id",
-            });
-        }
+        if (!name) {
+    return res.status(400).json({
+        ok: false,
+        error: "Missing name",
+    });
+}
 
         const db = await getDb();
         // limite: max 3 cerchie per utente
