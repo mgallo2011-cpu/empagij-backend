@@ -373,9 +373,7 @@ app.post("/auth/register", async (req, res) => {
 
         const db = await getDb();
 
-        const normalizedEmail = String(email).trim().toLowerCase();
-
-        const [existing] = await db.query(
+              const [existing] = await db.query(
             "SELECT id FROM users WHERE email = ?",
             [normalizedEmail]
         );
