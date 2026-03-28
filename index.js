@@ -1705,44 +1705,6 @@ process.on("uncaughtException", (err) => {
 process.on("unhandledRejection", (reason) => {
     console.error("UNHANDLED REJECTION:", reason);
 });
-app.get("/admin/circle-pending-invites/:circleId", async (req, res) => {
-    try {
-        const { circleId } = req.params;
-        const db = await getDb();
-
-        const [rows] = await db.query(
-            `SELECT id, circle_id, invitee_email, status, created_at
-             FROM circle_invites
-             WHERE circle_id = ?
-             ORDER BY created_at DESC`,
-            [circleId]
-        );
-
-        await db.end();
-        return res.json({ ok: true, invites: rows });
-    } catch (err) {
-        console.error("CIRCLE PENDING INVITES ERROR:", err);
-        return res.status(500).json({ ok: false, error: String(err) });
-    }
-});
-app.post("/admin/delete-invite/:id", async (req, res) => {
-    try {
-        const { id } = req.params;
-        const db = await getDb();
-
-        await db.query(
-            `DELETE FROM circle_invites WHERE id = ?`,
-            [id]
-        );
-
-        await db.end();
-
-        return res.json({ ok: true });
-    } catch (err) {
-        console.error("DELETE INVITE ERROR:", err);
-        return res.status(500).json({ ok: false, error: String(err) });
-    }
-});
 Promise.all([
     ensureUsersTable(),
     ensureCirclesTable(),
@@ -1754,31 +1716,7 @@ Promise.all([
 ])
     .then(() => {
         console.log("Users/Circles tables check OK");
-        app.post("/admin/cleanup-invites", async (req, res) => {
-    try {
-        const db = await getDb();
-
-        // elimina duplicati mantenendo solo il più recente per ogni (circle_id + email)
-        await db.query(`
-            DELETE ci1
-            FROM circle_invites ci1
-            INNER JOIN circle_invites ci2
-                ON ci1.circle_id = ci2.circle_id
-                AND LOWER(TRIM(ci1.invitee_email)) = LOWER(TRIM(ci2.invitee_email))
-                AND ci1.id <> ci2.id
-                AND ci1.created_at < ci2.created_at
-            WHERE ci1.status = 'pending'
-              AND ci2.status = 'pending'
-        `);
-
-        await db.end();
-
-        return res.json({ ok: true });
-    } catch (err) {
-        console.error("CLEANUP INVITES ERROR:", err);
-        return res.status(500).json({ ok: false, error: String(err) });
-    }
-});
+       
         app.listen(PORT, "0.0.0.0", () => {
             console.log(`Empagij backend running on 0.0.0.0:${PORT}`);
         });
