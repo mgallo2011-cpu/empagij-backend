@@ -1705,6 +1705,26 @@ process.on("uncaughtException", (err) => {
 process.on("unhandledRejection", (reason) => {
     console.error("UNHANDLED REJECTION:", reason);
 });
+app.get("/admin/circle-pending-invites/:circleId", async (req, res) => {
+    try {
+        const { circleId } = req.params;
+        const db = await getDb();
+
+        const [rows] = await db.query(
+            `SELECT id, circle_id, invitee_email, status, created_at
+             FROM circle_invites
+             WHERE circle_id = ?
+             ORDER BY created_at DESC`,
+            [circleId]
+        );
+
+        await db.end();
+        return res.json({ ok: true, invites: rows });
+    } catch (err) {
+        console.error("CIRCLE PENDING INVITES ERROR:", err);
+        return res.status(500).json({ ok: false, error: String(err) });
+    }
+});
 Promise.all([
     ensureUsersTable(),
     ensureCirclesTable(),
