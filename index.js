@@ -447,14 +447,10 @@ return res.json({
     }
 });
 // Membri di una cerchia
-app.get("/circles/:id/members", async (req, res) => {
+app.get("/circles/:id/members", authMiddleware, async (req, res) => {
     try {
         const { id } = req.params;
-        const userId = req.header("x-user-id");
-
-        if (!userId) {
-            return res.status(401).json({ ok: false, error: "Missing x-user-id" });
-        }
+        const userId = req.user.id;
 
         const db = await getDb();
 
@@ -1085,14 +1081,10 @@ app.post("/invites/:id/decline", async (req, res) => {
 // ===== PASSAGGI =====
 
 // Lista passaggi (per ora tutti)
-app.get("/passaggi", async (req, res) => {
+app.get("/passaggi", authMiddleware, async (req, res) => {
     try {
-        const userId = req.header("x-user-id");
+        const userId = req.user.id;
         const { circle_id } = req.query || {};
-
-        if (!userId) {
-            return res.status(401).json({ ok: false, error: "Missing x-user-id" });
-        }
 
         if (!circle_id) {
             return res.status(400).json({ ok: false, error: "Missing circle_id" });
@@ -1135,11 +1127,12 @@ app.get("/passaggi", async (req, res) => {
 });
 
 // Crea passaggio
-app.post("/passaggi", async (req, res) => {
+app.post("/passaggi", authMiddleware, async (req, res) => {
     try {
+        const userId = req.user.id;
+
         const {
             circle_id,
-            from_user_id,
             from_name,
             producer_id,
             producer_name,
@@ -1154,7 +1147,6 @@ app.post("/passaggi", async (req, res) => {
 
         if (
             !circle_id ||
-            !from_user_id ||
             !from_name ||
             !producer_id ||
             !producer_name ||
@@ -1167,20 +1159,21 @@ app.post("/passaggi", async (req, res) => {
         const db = await getDb();
 
         const [membershipRows] = await db.query(
-    `SELECT id
-     FROM circle_members
-     WHERE circle_id = ? AND user_id = ?
-     LIMIT 1`,
-    [circle_id, from_user_id]
-);
+            `SELECT id
+             FROM circle_members
+             WHERE circle_id = ? AND user_id = ?
+             LIMIT 1`,
+            [circle_id, userId]
+        );
 
-if (!membershipRows || membershipRows.length === 0) {
-    await db.end();
-    return res.status(403).json({
-        ok: false,
-        error: "User is not a member of this circle",
-    });
-}
+        if (!membershipRows || membershipRows.length === 0) {
+            await db.end();
+            return res.status(403).json({
+                ok: false,
+                error: "User is not a member of this circle",
+            });
+        }
+
         await db.query(
             `INSERT INTO passaggi
             (id, circle_id, from_user_id, from_name, producer_id, producer_name, producer_category, when_label, date_iso, note, status)
@@ -1188,7 +1181,7 @@ if (!membershipRows || membershipRows.length === 0) {
             [
                 id,
                 circle_id,
-                from_user_id,
+                userId,
                 from_name,
                 producer_id,
                 producer_name,
@@ -1203,20 +1196,17 @@ if (!membershipRows || membershipRows.length === 0) {
         await db.end();
         return res.json({ ok: true, id });
     } catch (err) {
+        console.error("CREATE PASSAGGIO ERROR:", err);
         return res.status(500).json({ ok: false, error: String(err) });
     }
 });
 // Elimina passaggio (solo autore)
-app.delete("/passaggi/:id", async (req, res) => {
+app.delete("/passaggi/:id", authMiddleware, async (req, res) => {
     try {
         const { id } = req.params;
 
         // Per ora prendiamo l'utente dal header (minimo sindacale, no token)
-        const userId = req.header("x-user-id");
-
-        if (!userId) {
-            return res.status(401).json({ ok: false, error: "Missing x-user-id" });
-        }
+        const userId = req.user.id;
 
         const db = await getDb();
 
