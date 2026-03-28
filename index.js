@@ -1649,6 +1649,43 @@ app.get("/richieste", authMiddleware, async (req, res) => {
         return res.status(500).json({ ok: false, error: String(err) });
     }
 });
+app.delete("/richieste/:id", authMiddleware, async (req, res) => {
+    try {
+        const { id } = req.params;
+        const userId = req.user.id;
+
+        const db = await getDb();
+
+        // elimina solo se sei il creatore della richiesta
+        const [result] = await db.query(
+            "DELETE FROM richieste WHERE id = ? AND from_user_id = ?",
+            [id, userId]
+        );
+
+        // elimina anche eventuali target collegati (pulizia)
+        await db.query(
+            "DELETE FROM richiesta_targets WHERE richiesta_id = ?",
+            [id]
+        );
+
+        await db.end();
+
+        if (!result || result.affectedRows === 0) {
+            return res.status(404).json({
+                ok: false,
+                error: "Not found or not allowed",
+            });
+        }
+
+        return res.json({ ok: true });
+    } catch (err) {
+        console.error("DELETE RICHIESTA ERROR:", err);
+        return res.status(500).json({
+            ok: false,
+            error: String(err),
+        });
+    }
+});
 process.on("uncaughtException", (err) => {
     console.error("UNCAUGHT EXCEPTION:", err);
 });
