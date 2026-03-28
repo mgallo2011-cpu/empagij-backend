@@ -363,7 +363,7 @@ app.get("/db-circles-structure", async (req, res) => {
 app.post("/auth/register", async (req, res) => {
     try {
         const { name, email, password, province_code, province_name } = req.body || {};
-
+        const normalizedEmail = String(email).trim().toLowerCase();
         if (!name || !email || !password || !province_code || !province_name) {
             return res.status(400).json({
                 ok: false,
@@ -373,10 +373,19 @@ app.post("/auth/register", async (req, res) => {
 
         const db = await getDb();
 
-        const [existing] = await db.query("SELECT id FROM users WHERE email = ?", [email]);
+        const normalizedEmail = String(email).trim().toLowerCase();
+
+        const [existing] = await db.query(
+            "SELECT id FROM users WHERE email = ?",
+            [normalizedEmail]
+        );
+
         if (existing.length > 0) {
             await db.end();
-            return res.status(409).json({ ok: false, error: "Email already registered" });
+            return res.status(409).json({
+                ok: false,
+                error: "Email already registered",
+            });
         }
 
         const id = crypto.randomUUID();
@@ -386,14 +395,25 @@ app.post("/auth/register", async (req, res) => {
             `INSERT INTO users
        (id, name, email, province_code, province_name, password_hash)
        VALUES (?, ?, ?, ?, ?, ?)`,
-            [id, name, email, province_code, province_name, password_hash]
+            [id, name, normalizedEmail, province_code, province_name, password_hash]
         );
 
         await db.end();
 
+        const safeUser = {
+            id,
+            name,
+            email: normalizedEmail,
+            province_code,
+            province_name,
+        };
+
+        const token = createAuthToken(safeUser);
+
         return res.json({
             ok: true,
-            user: { id, name, email, province_code, province_name },
+            token,
+            user: safeUser,
         });
     } catch (err) {
         return res.status(500).json({ ok: false, error: String(err) });
@@ -485,12 +505,12 @@ app.get("/circles/:id/members", authMiddleware, async (req, res) => {
         return res.status(500).json({ ok: false, error: String(err) });
     }
 });
-app.delete("/circles/:circleId/members/:memberUserId", async (req, res) => {
+app.delete("/circles/:circleId/members/:memberUserId", authMiddleware, async (req, res) => {
     let db;
 
     try {
         const { circleId, memberUserId } = req.params;
-        const userId = req.header("x-user-id");
+        const userId = req.user.id;
 
         if (!userId) {
             return res.status(401).json({ ok: false, error: "Missing x-user-id" });
@@ -708,15 +728,15 @@ app.get("/circles/mine", authMiddleware, async (req, res) => {
 // Membri di una cerchia
 
 // Invita utente via email in una cerchia
-app.post("/circles/:id/invite", async (req, res) => {
+app.post("/circles/:id/invite", authMiddleware, async (req, res) => {
     try {
         const { id: circle_id } = req.params;
         const { invitee_email } = req.body || {};
-        const invited_by_user_id = req.header("x-user-id");
+        const invited_by_user_id = req.user.id;
 
-        if (!invited_by_user_id) {
-            return res.status(401).json({ ok: false, error: "Missing x-user-id" });
-        }
+       if (!invited_by_user_id) {
+    return res.status(401).json({ ok: false, error: "Unauthorized" });
+}
 
         if (!invitee_email) {
             return res.status(400).json({ ok: false, error: "Missing invitee_email" });
@@ -735,7 +755,14 @@ const [membersCount] = await db.query(
   [circle_id]
 );
 
-if (membersCount[0].count >= 5) {
+const [pendingInvitesCount] = await db.query(
+  "SELECT COUNT(*) as count FROM circle_invites WHERE circle_id = ? AND status = 'pending'",
+  [circle_id]
+);
+
+const totalCount = membersCount[0].count + pendingInvitesCount[0].count;
+
+if (totalCount >= 5) {
   await db.end();
   return res.status(400).json({
     ok: false,
@@ -853,16 +880,16 @@ const [rows] = await db.query(
     }
 });
 // Accetta invito
-app.post("/invites/:id/accept", async (req, res) => {
+app.post("/invites/:id/accept", authMiddleware, async (req, res) => {
     let db;
 
     try {
         const { id: inviteId } = req.params;
-        const userId = req.header("x-user-id");
+       const userId = req.user.id;
 
-        if (!userId) {
-            return res.status(401).json({ ok: false, error: "Missing x-user-id" });
-        }
+       if (!userId) {
+    return res.status(401).json({ ok: false, error: "Unauthorized" });
+}
 
         db = await getDb();
         await db.beginTransaction();
@@ -1014,14 +1041,14 @@ if (userCircleCount >= 3) {
         return res.status(500).json({ ok: false, error: String(err) });
     }
 });
-app.post("/invites/:id/decline", async (req, res) => {
+app.post("/invites/:id/decline", authMiddleware, async (req, res) => {
     try {
         const { id: inviteId } = req.params;
         const userId = req.header("x-user-id");
 
-        if (!userId) {
-            return res.status(401).json({ ok: false, error: "Missing x-user-id" });
-        }
+      if (!userId) {
+    return res.status(401).json({ ok: false, error: "Unauthorized" });
+}
 
         const db = await getDb();
 
