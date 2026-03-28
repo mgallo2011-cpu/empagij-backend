@@ -833,41 +833,41 @@ if (existingPendingInvites && existingPendingInvites.length > 0) {
     }
 });
 // Lista inviti ricevuti
-app.get("/invites/mine", async (req, res) => {
+app.get("/invites/mine", authMiddleware, async (req, res) => {
     try {
-        const userId = req.header("x-user-id");
+        const userId = req.user.id;
 
         if (!userId) {
-            return res.status(401).json({ ok: false, error: "Missing x-user-id" });
+            return res.status(401).json({ ok: false, error: "Unauthorized" });
         }
 
         const db = await getDb();
 
-       const [userRows] = await db.query(
-    "SELECT email FROM users WHERE id = ? LIMIT 1",
-    [userId]
-);
+        const [userRows] = await db.query(
+            "SELECT email FROM users WHERE id = ? LIMIT 1",
+            [userId]
+        );
 
-if (!userRows || userRows.length === 0) {
-    await db.end();
-    return res.status(404).json({ ok: false, error: "User not found" });
-}
+        if (!userRows || userRows.length === 0) {
+            await db.end();
+            return res.status(404).json({ ok: false, error: "User not found" });
+        }
 
-const userEmail = userRows[0].email;
+        const userEmail = String(userRows[0].email || "").trim().toLowerCase();
 
-const [rows] = await db.query(
-    `
-    SELECT ci.id, ci.circle_id, c.name AS circle_name,
-           ci.invited_by_user_id, ci.invitee_email,
-           ci.status, ci.created_at
-    FROM circle_invites ci
-    JOIN circles c ON c.id = ci.circle_id
-    WHERE ci.status = 'pending'
-      AND ci.invitee_email = ?
-    ORDER BY ci.created_at DESC
-    `,
-    [userEmail]
-);
+        const [rows] = await db.query(
+            `
+            SELECT ci.id, ci.circle_id, c.name AS circle_name,
+                   ci.invited_by_user_id, ci.invitee_email,
+                   ci.status, ci.created_at
+            FROM circle_invites ci
+            JOIN circles c ON c.id = ci.circle_id
+            WHERE ci.status = 'pending'
+              AND ci.invitee_email = ?
+            ORDER BY ci.created_at DESC
+            `,
+            [userEmail]
+        );
 
         await db.end();
 
