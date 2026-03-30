@@ -1042,11 +1042,11 @@ if (userCircleCount >= 3) {
 app.post("/invites/:id/decline", authMiddleware, async (req, res) => {
     try {
         const { id: inviteId } = req.params;
-        const userId = req.header("x-user-id");
+        const userId = req.user.id;
 
-      if (!userId) {
-    return res.status(401).json({ ok: false, error: "Unauthorized" });
-}
+        if (!userId) {
+            return res.status(401).json({ ok: false, error: "Unauthorized" });
+        }
 
         const db = await getDb();
 
@@ -1063,7 +1063,7 @@ app.post("/invites/:id/decline", authMiddleware, async (req, res) => {
         const userEmail = String(userRows[0].email || "").trim().toLowerCase();
 
         const [inviteRows] = await db.query(
-            `SELECT id, invitee_email, status
+            `SELECT id, invitee_email, status, circle_id
              FROM circle_invites
              WHERE id = ?
              LIMIT 1`,
@@ -1088,6 +1088,7 @@ app.post("/invites/:id/decline", authMiddleware, async (req, res) => {
             return res.status(403).json({ ok: false, error: "This invite does not belong to the current user" });
         }
 
+        // decrementiamo implicitamente il "peso" della cerchia liberando uno slot
         await db.query(
             `UPDATE circle_invites
              SET status = 'declined'
@@ -1257,8 +1258,9 @@ app.delete("/passaggi/:id", authMiddleware, async (req, res) => {
 });
 const PORT = process.env.PORT || 4000;
 // GET producers by province
-app.get("/producers", async (req, res) => {
+app.get("/producers", authMiddleware, async (req, res) => {
     try {
+        const userId = req.user.id;
         const { province_code } = req.query || {};
 
         if (!province_code) {
@@ -1270,28 +1272,43 @@ app.get("/producers", async (req, res) => {
 
         const db = await getDb();
 
+        // verifica che l'utente esista (sicurezza minima)
+        const [users] = await db.query(
+            "SELECT id FROM users WHERE id = ? LIMIT 1",
+            [userId]
+        );
+
+        if (!users || users.length === 0) {
+            await db.end();
+            return res.status(401).json({
+                ok: false,
+                error: "Unauthorized",
+            });
+        }
+
         const [rows] = await db.query(
             `
-      SELECT id, name, category, province_code, address, city,
-             google_maps_url, website_url, notes,
-             created_by_user_id, visibility,
-             created_at, updated_at
-      FROM producers
-      WHERE province_code = ?
-      ORDER BY name ASC
-    `,
+            SELECT id, name, category, province_code, address, city,
+                   google_maps_url, website_url, notes,
+                   created_by_user_id, visibility,
+                   created_at, updated_at
+            FROM producers
+            WHERE province_code = ?
+            ORDER BY name ASC
+            `,
             [String(province_code).trim().toUpperCase()]
         );
 
         await db.end();
 
-        res.json({ ok: true, producers: rows });
+        return res.json({ ok: true, producers: rows });
     } catch (err) {
-        res.status(500).json({ ok: false, error: String(err) });
+        console.error("GET PRODUCERS ERROR:", err);
+        return res.status(500).json({ ok: false, error: String(err) });
     }
 });
 // Crea producer
-app.post("/producers", async (req, res) => {
+app.post("/producers", authMiddleware, async (req, res) => {
     try {
         const {
             id,
@@ -1304,16 +1321,17 @@ app.post("/producers", async (req, res) => {
             opening_hours,
             closed_days,
             holidays,
-            created_by_user_id,
             visibility,
+            google_maps_url,
+            website_url,
         } = req.body || {};
-        console.log("POST /producers BODY:", req.body);
 
+        const created_by_user_id = req.user.id;
 
         if (!name || !category || !created_by_user_id) {
             return res.status(400).json({
                 ok: false,
-                error: "Missing name/category/created_by_user_id",
+                error: "Missing name/category",
             });
         }
 
@@ -1333,8 +1351,6 @@ app.post("/producers", async (req, res) => {
         }
 
         const province_code = users[0].province_code || null;
-        console.log("POST /producers USER LOOKUP:", users[0]);
-        console.log("POST /producers province_code:", province_code);
 
         if (!province_code) {
             await db.end();
@@ -1343,27 +1359,31 @@ app.post("/producers", async (req, res) => {
                 error: "User has no province_code",
             });
         }
-      
+
         const producerId = id || crypto.randomUUID();
-        console.log("POST /producers INSERT DATA:", {
-            producerId,
-            name,
-            province_code,
-            category,
-            address: address || null,
-            city: city || null,
-            phone: phone || null,
-            notes: notes || null,
-            opening_hours: opening_hours || null,
-            closed_days: closed_days || null,
-            holidays: holidays || null,
-            created_by_user_id,
-            visibility: visibility || "cerchia",
-        });
+
         await db.query(
             `INSERT INTO producers
-      (id, name, province_code, category, address, city, phone, notes, opening_hours, closed_days, holidays, created_by_user_id, visibility, created_at, updated_at)
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NOW(), NOW())`,
+            (
+                id,
+                name,
+                province_code,
+                category,
+                address,
+                city,
+                google_maps_url,
+                website_url,
+                phone,
+                notes,
+                opening_hours,
+                closed_days,
+                holidays,
+                created_by_user_id,
+                visibility,
+                created_at,
+                updated_at
+            )
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NOW(), NOW())`,
             [
                 producerId,
                 name,
@@ -1371,6 +1391,8 @@ app.post("/producers", async (req, res) => {
                 category,
                 address || null,
                 city || null,
+                google_maps_url || null,
+                website_url || null,
                 phone || null,
                 notes || null,
                 opening_hours || null,
@@ -1392,13 +1414,13 @@ app.post("/producers", async (req, res) => {
         });
     }
 });
-app.delete("/producers/:id", async (req, res) => {
+app.delete("/producers/:id", authMiddleware, async (req, res) => {
     try {
         const { id } = req.params;
-        const userId = req.header("x-user-id");
+        const userId = req.user.id;
 
         if (!userId) {
-            return res.status(401).json({ ok: false, error: "Missing x-user-id" });
+            return res.status(401).json({ ok: false, error: "Unauthorized" });
         }
 
         const db = await getDb();
@@ -1424,13 +1446,13 @@ app.delete("/producers/:id", async (req, res) => {
         return res.status(500).json({ ok: false, error: String(err) });
     }
 });
-app.put("/producers/:id", async (req, res) => {
+app.put("/producers/:id", authMiddleware, async (req, res) => {
     try {
         const { id } = req.params;
-        const userId = req.header("x-user-id");
+        const userId = req.user.id;
 
         if (!userId) {
-            return res.status(401).json({ ok: false, error: "Missing x-user-id" });
+            return res.status(401).json({ ok: false, error: "Unauthorized" });
         }
 
         const {
@@ -1439,6 +1461,8 @@ app.put("/producers/:id", async (req, res) => {
             address,
             city,
             notes,
+            google_maps_url,
+            website_url,
         } = req.body || {};
 
         if (!name || !category) {
@@ -1449,7 +1473,14 @@ app.put("/producers/:id", async (req, res) => {
 
         const [result] = await db.query(
             `UPDATE producers
-             SET name = ?, category = ?, address = ?, city = ?, notes = ?, updated_at = NOW()
+             SET name = ?, 
+                 category = ?, 
+                 address = ?, 
+                 city = ?, 
+                 notes = ?, 
+                 google_maps_url = ?, 
+                 website_url = ?, 
+                 updated_at = NOW()
              WHERE id = ? AND created_by_user_id = ?`,
             [
                 name,
@@ -1457,6 +1488,8 @@ app.put("/producers/:id", async (req, res) => {
                 address || null,
                 city || null,
                 notes || null,
+                google_maps_url || null,
+                website_url || null,
                 id,
                 userId,
             ]
@@ -1474,13 +1507,25 @@ app.put("/producers/:id", async (req, res) => {
         return res.status(500).json({ ok: false, error: String(err) });
     }
 });
-app.post("/admin/reset-demo", async (req, res) => {
+app.post("/admin/reset-demo", authMiddleware, async (req, res) => {
     try {
+        const userId = req.user.id;
+
+        if (!userId) {
+            return res.status(401).json({ ok: false, error: "Unauthorized" });
+        }
+
         const db = await getDb();
+
+        await db.query("DELETE FROM richiesta_targets");
+        await db.query("DELETE FROM richieste");
         await db.query("DELETE FROM passaggi");
+
         await db.end();
+
         return res.json({ ok: true });
     } catch (err) {
+        console.error("RESET DEMO ERROR:", err);
         return res.status(500).json({ ok: false, error: String(err) });
     }
 });
@@ -1616,6 +1661,7 @@ app.post("/richieste", authMiddleware, async (req, res) => {
 });
 app.get("/richieste", authMiddleware, async (req, res) => {
     console.log("GET /richieste HIT", req.query);
+
     try {
         const { circle_id } = req.query;
         const userId = req.user.id;
@@ -1626,9 +1672,9 @@ app.get("/richieste", authMiddleware, async (req, res) => {
 
         const db = await getDb();
 
-        // verifica che l'utente sia membro della cerchia
+        // verifica membership
         const [members] = await db.query(
-            "SELECT id FROM circle_members WHERE circle_id = ? AND user_id = ? LIMIT 1",
+            "SELECT 1 FROM circle_members WHERE circle_id = ? AND user_id = ? LIMIT 1",
             [circle_id, userId]
         );
 
@@ -1637,25 +1683,57 @@ app.get("/richieste", authMiddleware, async (req, res) => {
             return res.status(403).json({ ok: false, error: "Not a member of this circle" });
         }
 
-       const [rows] = await db.query(
-    `
-    SELECT
-        r.*,
-        GROUP_CONCAT(u.name SEPARATOR ', ') AS target_names,
-        GROUP_CONCAT(rt.target_user_id SEPARATOR ',') AS target_user_ids
-    FROM richieste r
-    LEFT JOIN richiesta_targets rt ON rt.richiesta_id = r.id
-    LEFT JOIN users u ON u.id = rt.target_user_id
-    WHERE r.circle_id = ?
-    GROUP BY r.id
-    ORDER BY r.created_at DESC
-    `,
-    [circle_id]
-);
+        // query ottimizzata (NO GROUP_CONCAT pesante)
+        const [richieste] = await db.query(
+            `
+            SELECT *
+            FROM richieste
+            WHERE circle_id = ?
+            ORDER BY created_at DESC
+            `,
+            [circle_id]
+        );
+
+        if (!richieste || richieste.length === 0) {
+            await db.end();
+            return res.json({ ok: true, items: [] });
+        }
+
+        const richiestaIds = richieste.map(r => r.id);
+
+        const [targets] = await db.query(
+            `
+            SELECT rt.richiesta_id, rt.target_user_id, u.name
+            FROM richiesta_targets rt
+            JOIN users u ON u.id = rt.target_user_id
+            WHERE rt.richiesta_id IN (?)
+            `,
+            [richiestaIds]
+        );
+
+        // mapping veloce in memoria (molto più performante)
+        const targetsMap = {};
+        for (const t of targets) {
+            if (!targetsMap[t.richiesta_id]) {
+                targetsMap[t.richiesta_id] = {
+                    names: [],
+                    ids: []
+                };
+            }
+            targetsMap[t.richiesta_id].names.push(t.name);
+            targetsMap[t.richiesta_id].ids.push(t.target_user_id);
+        }
+
+        const items = richieste.map(r => ({
+            ...r,
+            target_names: (targetsMap[r.id]?.names || []).join(", "),
+            target_user_ids: (targetsMap[r.id]?.ids || []).join(","),
+        }));
 
         await db.end();
 
-        return res.json({ ok: true, items: rows });
+        return res.json({ ok: true, items });
+
     } catch (err) {
         console.error("GET RICHIESTE ERROR:", err);
         return res.status(500).json({ ok: false, error: String(err) });
@@ -1668,26 +1746,48 @@ app.delete("/richieste/:id", authMiddleware, async (req, res) => {
 
         const db = await getDb();
 
-        // elimina solo se sei il creatore della richiesta
-        const [result] = await db.query(
-            "DELETE FROM richieste WHERE id = ? AND from_user_id = ?",
+        // 1. Verifica che la richiesta esista e appartenga alla cerchia dell'utente
+        const [rows] = await db.query(
+            `SELECT r.id, r.from_user_id, r.circle_id
+             FROM richieste r
+             JOIN circle_members cm ON cm.circle_id = r.circle_id
+             WHERE r.id = ? AND cm.user_id = ?
+             LIMIT 1`,
             [id, userId]
         );
 
-        // elimina anche eventuali target collegati (pulizia)
-        await db.query(
-            "DELETE FROM richiesta_targets WHERE richiesta_id = ?",
-            [id]
-        );
-
-        await db.end();
-
-        if (!result || result.affectedRows === 0) {
+        if (!rows || rows.length === 0) {
+            await db.end();
             return res.status(404).json({
                 ok: false,
                 error: "Not found or not allowed",
             });
         }
+
+        const richiesta = rows[0];
+
+        // 2. Solo chi ha creato la richiesta può eliminarla
+        if (richiesta.from_user_id !== userId) {
+            await db.end();
+            return res.status(403).json({
+                ok: false,
+                error: "Only the creator can delete this request",
+            });
+        }
+
+        // 3. Elimina targets prima (integrità)
+        await db.query(
+            "DELETE FROM richiesta_targets WHERE richiesta_id = ?",
+            [id]
+        );
+
+        // 4. Elimina richiesta
+        await db.query(
+            "DELETE FROM richieste WHERE id = ?",
+            [id]
+        );
+
+        await db.end();
 
         return res.json({ ok: true });
     } catch (err) {
