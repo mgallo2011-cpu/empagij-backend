@@ -1699,36 +1699,45 @@ app.get("/richieste", authMiddleware, async (req, res) => {
             return res.json({ ok: true, items: [] });
         }
 
-        const richiestaIds = richieste.map(r => r.id);
+        let targets = [];
 
-        const [targets] = await db.query(
-            `
-            SELECT rt.richiesta_id, rt.target_user_id, u.name
-            FROM richiesta_targets rt
-            JOIN users u ON u.id = rt.target_user_id
-            WHERE rt.richiesta_id IN (?)
-            `,
-            [richiestaIds]
-        );
+if (richieste.length > 0) {
+    const placeholders = richieste.map(() => "?").join(",");
 
-        // mapping veloce in memoria (molto più performante)
-        const targetsMap = {};
-        for (const t of targets) {
-            if (!targetsMap[t.richiesta_id]) {
-                targetsMap[t.richiesta_id] = {
-                    names: [],
-                    ids: []
-                };
-            }
-            targetsMap[t.richiesta_id].names.push(t.name);
-            targetsMap[t.richiesta_id].ids.push(t.target_user_id);
-        }
+    const query = `
+        SELECT rt.richiesta_id, rt.target_user_id, u.name, rt.status
+        FROM richiesta_targets rt
+        JOIN users u ON u.id = rt.target_user_id
+        WHERE rt.richiesta_id IN (${placeholders})
+    `;
 
-        const items = richieste.map(r => ({
-            ...r,
-            target_names: (targetsMap[r.id]?.names || []).join(", "),
-            target_user_ids: (targetsMap[r.id]?.ids || []).join(","),
-        }));
+    const values = richieste.map((r) => r.id);
+
+    const [rows] = await db.query(query, values);
+    targets = rows;
+}
+
+// mapping veloce in memoria (molto più performante)
+const targetsMap = {};
+for (const t of targets) {
+    if (!targetsMap[t.richiesta_id]) {
+        targetsMap[t.richiesta_id] = {
+            names: [],
+            ids: [],
+            statusByUserId: {},
+        };
+    }
+    targetsMap[t.richiesta_id].names.push(t.name);
+    targetsMap[t.richiesta_id].ids.push(t.target_user_id);
+    targetsMap[t.richiesta_id].statusByUserId[t.target_user_id] = t.status;
+}
+
+const items = richieste.map((r) => ({
+    ...r,
+    target_names: (targetsMap[r.id]?.names || []).join(", "),
+    target_user_ids: (targetsMap[r.id]?.ids || []).join(","),
+    target_status_map: targetsMap[r.id]?.statusByUserId || {},
+}));
 
         await db.end();
 
@@ -1796,6 +1805,54 @@ app.delete("/richieste/:id", authMiddleware, async (req, res) => {
             ok: false,
             error: String(err),
         });
+    }
+});
+// Rispondi a una richiesta (accepted / declined)
+app.post("/richieste/:id/respond", authMiddleware, async (req, res) => {
+    try {
+        const { id } = req.params;
+        const userId = req.user.id;
+        const { decision } = req.body || {};
+
+        if (!["accepted", "declined"].includes(decision)) {
+            return res.status(400).json({
+                ok: false,
+                error: "Invalid decision",
+            });
+        }
+
+        const db = await getDb();
+
+        // verifica che il target esista
+        const [rows] = await db.query(
+            `SELECT id
+             FROM richiesta_targets
+             WHERE richiesta_id = ? AND target_user_id = ?
+             LIMIT 1`,
+            [id, userId]
+        );
+
+        if (!rows || rows.length === 0) {
+            await db.end();
+            return res.status(404).json({
+                ok: false,
+                error: "Target not found for this request",
+            });
+        }
+
+        await db.query(
+            `UPDATE richiesta_targets
+             SET status = ?, responded_at = NOW()
+             WHERE richiesta_id = ? AND target_user_id = ?`,
+            [decision, id, userId]
+        );
+
+        await db.end();
+
+        return res.json({ ok: true });
+    } catch (err) {
+        console.error("RESPOND RICHIESTA ERROR:", err);
+        return res.status(500).json({ ok: false, error: String(err) });
     }
 });
 process.on("uncaughtException", (err) => {
