@@ -1348,29 +1348,6 @@ app.post("/producers", authMiddleware, async (req, res) => {
                 ok: false,
                 error: "Missing province_code",
             });
-        } const db = await getDb();
-
-        const [users] = await db.query(
-            "SELECT province_code FROM users WHERE id = ? LIMIT 1",
-            [created_by_user_id]
-        );
-
-        if (!users || users.length === 0) {
-            await db.end();
-            return res.status(404).json({
-                ok: false,
-                error: "User not found",
-            });
-        }
-
-        const province_code = users[0].province_code || null;
-
-        if (!province_code) {
-            await db.end();
-            return res.status(400).json({
-                ok: false,
-                error: "User has no province_code",
-            });
         }
 
         const producerId = id || crypto.randomUUID();
