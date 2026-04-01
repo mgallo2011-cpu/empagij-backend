@@ -1415,10 +1415,17 @@ app.delete("/producers/:id", authMiddleware, async (req, res) => {
 
         const db = await getDb();
 
-        const [result] = await db.query(
-            "DELETE FROM producers WHERE id = ? AND created_by_user_id = ?",
-            [id, userId]
-        );
+       const [result] = await db.query(
+    `DELETE p
+     FROM producers p
+     JOIN users u ON u.id = ?
+     WHERE p.id = ?
+       AND (
+         p.created_by_user_id = ?
+         OR p.province_code = u.province_code
+       )`,
+    [userId, id, userId]
+);
 
         console.log("DELETE /producers id:", id);
         console.log("DELETE /producers userId:", userId);
