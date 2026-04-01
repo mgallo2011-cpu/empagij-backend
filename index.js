@@ -3,8 +3,73 @@ const cors = require("cors");
 const path = require("path");
 require("dotenv").config({ path: path.join(__dirname, ".env") });
 const crypto = require("crypto");
+const nodemailer = require("nodemailer");
 console.log("DB_HOST", process.env.DB_HOST, "DB_USER", process.env.DB_USER, "DB_PORT", process.env.DB_PORT, "DB_NAME", process.env.DB_NAME, "PWD_LEN", (process.env.DB_PASSWORD || "").length);
 const { getDb } = require("./db");
+
+function getMailTransporter() {
+    const host = String(process.env.SMTP_HOST || "").trim();
+    const port = Number(process.env.SMTP_PORT || 587);
+    const user = String(process.env.SMTP_USER || "").trim();
+    const pass = String(process.env.SMTP_PASS || "").trim();
+    const secure = String(process.env.SMTP_SECURE || "false").trim() === "true";
+
+    if (!host || !port || !user || !pass) {
+        return null;
+    }
+
+    return nodemailer.createTransport({
+        host,
+        port,
+        secure,
+        auth: {
+            user,
+            pass,
+        },
+    });
+}
+
+async function sendCircleInviteEmail({
+    toEmail,
+    circleName,
+    inviterName,
+}) {
+    const transporter = getMailTransporter();
+
+    if (!transporter) {
+        return {
+            ok: false,
+            skipped: true,
+            error: "SMTP not configured",
+        };
+    }
+
+    const appUrl = String(process.env.APP_URL || "").trim();
+    const fromEmail =
+        String(process.env.MAIL_FROM || "").trim() ||
+        String(process.env.SMTP_USER || "").trim();
+
+    const subject = "Sei stato invitato in una cerchia su Empagij";
+
+    const text =
+        `Ciao!\n\n` +
+        `${inviterName || "Un utente"} ti ha invitato nella cerchia "${circleName || "Empagij"}" su Empagij.\n\n` +
+        `Per vedere e accettare l'invito:\n` +
+        `- entra nell'app con questa email\n` +
+        `- apri la sezione Cerchia\n\n` +
+        `Se non hai ancora un account, registrati usando questa stessa email.\n` +
+        `${appUrl ? `\nApri l'app: ${appUrl}\n` : ""}\n` +
+        `Empagij`;
+
+    await transporter.sendMail({
+        from: fromEmail,
+        to: toEmail,
+        subject,
+        text,
+    });
+
+    return { ok: true, skipped: false };
+}
 async function ensureUsersTable() {
     const db = await getDb();
 
@@ -729,55 +794,68 @@ app.get("/circles/mine", authMiddleware, async (req, res) => {
 
 // Invita utente via email in una cerchia
 app.post("/circles/:id/invite", authMiddleware, async (req, res) => {
+    let db;
+
     try {
         const { id: circle_id } = req.params;
         const { invitee_email } = req.body || {};
         const invited_by_user_id = req.user.id;
 
-       if (!invited_by_user_id) {
-    return res.status(401).json({ ok: false, error: "Unauthorized" });
-}
+        if (!invited_by_user_id) {
+            return res.status(401).json({ ok: false, error: "Unauthorized" });
+        }
 
         if (!invitee_email) {
             return res.status(400).json({ ok: false, error: "Missing invitee_email" });
         }
 
-        const db = await getDb();
+        db = await getDb();
 
-        // verifica che la cerchia esista
         const [circles] = await db.query(
-            "SELECT id FROM circles WHERE id = ? LIMIT 1",
+            `
+            SELECT id, name
+            FROM circles
+            WHERE id = ?
+            LIMIT 1
+            `,
             [circle_id]
         );
-        // 1. Conta membri attuali della cerchia
-const [membersCount] = await db.query(
-  "SELECT COUNT(*) as count FROM circle_members WHERE circle_id = ?",
-  [circle_id]
-);
 
-const [pendingInvitesCount] = await db.query(
-  "SELECT COUNT(*) as count FROM circle_invites WHERE circle_id = ? AND status = 'pending'",
-  [circle_id]
-);
+        const [membersCount] = await db.query(
+            "SELECT COUNT(*) as count FROM circle_members WHERE circle_id = ?",
+            [circle_id]
+        );
 
-const totalCount = membersCount[0].count + pendingInvitesCount[0].count;
+        const [pendingInvitesCount] = await db.query(
+            "SELECT COUNT(*) as count FROM circle_invites WHERE circle_id = ? AND status = 'pending'",
+            [circle_id]
+        );
 
-if (totalCount >= 5) {
-  await db.end();
-  return res.status(400).json({
-    ok: false,
-    error: "Limite cerchia raggiunto (max 5 membri)"
-  });
-}
+        const totalCount = membersCount[0].count + pendingInvitesCount[0].count;
+
+        if (totalCount >= 5) {
+            await db.end();
+            return res.status(400).json({
+                ok: false,
+                error: "Limite cerchia raggiunto (max 5 membri)",
+            });
+        }
 
         if (!circles || circles.length === 0) {
             await db.end();
             return res.status(404).json({ ok: false, error: "Circle not found" });
         }
 
-        // verifica che chi invita sia membro della cerchia
+        const circle = circles[0];
+
         const [members] = await db.query(
-            "SELECT id FROM circle_members WHERE circle_id = ? AND user_id = ? LIMIT 1",
+            `
+            SELECT cm.id, u.name, u.email
+            FROM circle_members cm
+            JOIN users u ON u.id = cm.user_id
+            WHERE cm.circle_id = ? AND cm.user_id = ?
+            LIMIT 1
+            `,
             [circle_id, invited_by_user_id]
         );
 
@@ -785,51 +863,105 @@ if (totalCount >= 5) {
             await db.end();
             return res.status(403).json({ ok: false, error: "Not a member of this circle" });
         }
+
+        const inviter = members[0];
         const normalizedInviteeEmail = String(invitee_email).trim().toLowerCase();
+
         const [usersByEmail] = await db.query(
-    "SELECT id, email FROM users WHERE email = ? LIMIT 1",
-    [normalizedInviteeEmail]
-);
+            "SELECT id, email FROM users WHERE email = ? LIMIT 1",
+            [normalizedInviteeEmail]
+        );
 
-if (!usersByEmail || usersByEmail.length === 0) {
-    await db.end();
-    return res.status(404).json({
-        ok: false,
-        error: "User not found",
-    });
-}
+        if (!usersByEmail || usersByEmail.length === 0) {
+            await db.end();
+            return res.status(404).json({
+                ok: false,
+                error: "User not found",
+            });
+        }
 
-const [existingPendingInvites] = await db.query(
-    `SELECT id
-     FROM circle_invites
-     WHERE circle_id = ?
-       AND LOWER(TRIM(invitee_email)) = ?
-       AND status = 'pending'
-     LIMIT 1`,
-    [circle_id, normalizedInviteeEmail]
-);
+        const invitedUser = usersByEmail[0];
 
-if (existingPendingInvites && existingPendingInvites.length > 0) {
-    await db.end();
-    return res.status(409).json({
-        ok: false,
-        error: "Esiste già un invito pendente per questa email",
-    });
-}
+        const [alreadyMembers] = await db.query(
+            `
+            SELECT id
+            FROM circle_members
+            WHERE circle_id = ? AND user_id = ?
+            LIMIT 1
+            `,
+            [circle_id, invitedUser.id]
+        );
+
+        if (alreadyMembers && alreadyMembers.length > 0) {
+            await db.end();
+            return res.status(409).json({
+                ok: false,
+                error: "Questo utente fa già parte della cerchia",
+            });
+        }
+
+        const [existingPendingInvites] = await db.query(
+            `SELECT id
+             FROM circle_invites
+             WHERE circle_id = ?
+               AND LOWER(TRIM(invitee_email)) = ?
+               AND status = 'pending'
+             LIMIT 1`,
+            [circle_id, normalizedInviteeEmail]
+        );
+
+        if (existingPendingInvites && existingPendingInvites.length > 0) {
+            await db.end();
+            return res.status(409).json({
+                ok: false,
+                error: "Esiste già un invito pendente per questa email",
+            });
+        }
+
         const id = crypto.randomUUID();
         const token = crypto.randomUUID();
 
         await db.query(
             `INSERT INTO circle_invites
-      (id, circle_id, invited_by_user_id, invitee_email, token, status)
-      VALUES (?, ?, ?, ?, ?, ?)`,
+            (id, circle_id, invited_by_user_id, invitee_email, token, status)
+            VALUES (?, ?, ?, ?, ?, ?)`,
             [id, circle_id, invited_by_user_id, normalizedInviteeEmail, token, "pending"]
         );
 
         await db.end();
+        db = null;
 
-        return res.json({ ok: true, id });
+        let emailResult = { ok: false, skipped: true, error: "SMTP not configured" };
+
+        try {
+            emailResult = await sendCircleInviteEmail({
+                toEmail: normalizedInviteeEmail,
+                circleName: circle.name,
+                inviterName: inviter.name || "Un utente",
+            });
+        } catch (mailErr) {
+            console.error("INVITE EMAIL ERROR:", mailErr);
+            emailResult = {
+                ok: false,
+                skipped: false,
+                error: String(mailErr),
+            };
+        }
+
+        return res.json({
+            ok: true,
+            id,
+            email_sent: emailResult.ok,
+            email_skipped: !!emailResult.skipped,
+            email_error: emailResult.ok ? null : emailResult.error,
+        });
     } catch (err) {
+        try {
+            if (db) {
+                await db.end();
+            }
+        } catch (_) {}
+
         console.error("INVITE ERROR:", err);
         return res.status(500).json({ ok: false, error: String(err) });
     }
