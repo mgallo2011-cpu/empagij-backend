@@ -1468,8 +1468,8 @@ app.put("/producers/:id", authMiddleware, async (req, res) => {
 
         const db = await getDb();
 
-       const [result] = await db.query(
-    `UPDATE p
+      const [result] = await db.query(
+    `UPDATE producers p
      JOIN users u ON u.id = ?
      SET p.name = ?, 
          p.category = ?, 
