@@ -1468,28 +1468,34 @@ app.put("/producers/:id", authMiddleware, async (req, res) => {
 
         const db = await getDb();
 
-        const [result] = await db.query(
-            `UPDATE producers
-             SET name = ?, 
-                 category = ?, 
-                 address = ?, 
-                 city = ?, 
-                 notes = ?, 
-                 google_maps_url = ?, 
-                 website_url = ?, 
-                 updated_at = NOW()
-             WHERE id = ? AND created_by_user_id = ?`,
+       const [result] = await db.query(
+    `UPDATE p
+     JOIN users u ON u.id = ?
+     SET p.name = ?, 
+         p.category = ?, 
+         p.address = ?, 
+         p.city = ?, 
+         p.notes = ?, 
+         p.google_maps_url = ?, 
+         p.website_url = ?, 
+         p.updated_at = NOW()
+     WHERE p.id = ?
+       AND (
+         p.created_by_user_id = ?
+         OR p.province_code = u.province_code
+       )`,
             [
-                name,
-                category,
-                address || null,
-                city || null,
-                notes || null,
-                google_maps_url || null,
-                website_url || null,
-                id,
-                userId,
-            ]
+    userId,
+    name,
+    category,
+    address || null,
+    city || null,
+    notes || null,
+    google_maps_url || null,
+    website_url || null,
+    id,
+    userId,
+]
         );
 
         await db.end();
