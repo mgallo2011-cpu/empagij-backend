@@ -1316,6 +1316,7 @@ app.post("/producers", authMiddleware, async (req, res) => {
             id,
             name,
             category,
+            province_code,
             address,
             city,
             phone,
@@ -1338,6 +1339,16 @@ app.post("/producers", authMiddleware, async (req, res) => {
         }
 
         const db = await getDb();
+
+        const normalizedProvinceCode = String(province_code || "").trim().toUpperCase();
+
+        if (!normalizedProvinceCode) {
+            await db.end();
+            return res.status(400).json({
+                ok: false,
+                error: "Missing province_code",
+            });
+        } const db = await getDb();
 
         const [users] = await db.query(
             "SELECT province_code FROM users WHERE id = ? LIMIT 1",
@@ -1389,7 +1400,7 @@ app.post("/producers", authMiddleware, async (req, res) => {
             [
                 producerId,
                 name,
-                province_code,
+                normalizedProvinceCode,
                 category,
                 address || null,
                 city || null,
