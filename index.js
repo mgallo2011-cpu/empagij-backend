@@ -419,8 +419,10 @@ app.post("/auth/register", async (req, res) => {
 });
 app.post("/auth/login", async (req, res) => {
     try {
-        const { email, password } = req.body || {};
-        if (!email || !password) {
+              const { email, password } = req.body || {};
+        const normalizedEmail = String(email || "").trim().toLowerCase();
+
+        if (!normalizedEmail || !password) {
             return res.status(400).json({ ok: false, error: "Missing email/password" });
         }
 
@@ -428,7 +430,7 @@ app.post("/auth/login", async (req, res) => {
 
         const [rows] = await db.query(
             "SELECT id, name, email, province_code, province_name, password_hash FROM users WHERE email = ? LIMIT 1",
-            [email]
+            [normalizedEmail]
         );
 
         if (!rows || rows.length === 0) {
