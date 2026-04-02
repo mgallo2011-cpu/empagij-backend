@@ -29,47 +29,21 @@ function getMailTransporter() {
     });
 }
 
-async function sendCircleInviteEmail({
-    toEmail,
-    circleName,
-    inviterName,
-}) {
-    const transporter = getMailTransporter();
-
-    if (!transporter) {
-        return {
+        try {
+        emailResult = await sendCircleInviteEmail({
+            toEmail: normalizedInviteeEmail,
+            circleName: circle.name,
+            inviterName: inviter.name || "Un utente",
+            inviteToken: token,
+        });
+    } catch (mailErr) {
+        console.error("INVITE EMAIL ERROR:", mailErr);
+        emailResult = {
             ok: false,
-            skipped: true,
-            error: "SMTP not configured",
+            skipped: false,
+            error: String(mailErr),
         };
     }
-
-    const appUrl = String(process.env.APP_URL || "").trim();
-    const fromEmail =
-        String(process.env.MAIL_FROM || "").trim() ||
-        String(process.env.SMTP_USER || "").trim();
-
-    const subject = "Sei stato invitato in una cerchia su Empagij";
-
-    const text =
-        `Ciao!\n\n` +
-        `${inviterName || "Un utente"} ti ha invitato nella cerchia "${circleName || "Empagij"}" su Empagij.\n\n` +
-        `Per vedere e accettare l'invito:\n` +
-        `- entra nell'app con questa email\n` +
-        `- apri la sezione Cerchia\n\n` +
-        `Se non hai ancora un account, registrati usando questa stessa email.\n` +
-        `${appUrl ? `\nApri l'app: ${appUrl}\n` : ""}\n` +
-        `Empagij`;
-
-    await transporter.sendMail({
-        from: fromEmail,
-        to: toEmail,
-        subject,
-        text,
-    });
-
-    return { ok: true, skipped: false };
-}
 async function ensureUsersTable() {
     const db = await getDb();
 
