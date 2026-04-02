@@ -1015,6 +1015,167 @@ app.get("/invites/mine", authMiddleware, async (req, res) => {
         return res.status(500).json({ ok: false, error: String(err) });
     }
 });
+app.post("/invites/accept-by-token", authMiddleware, async (req, res) => {
+    let db;
+
+    try {
+        const userId = req.user.id;
+        const { token } = req.body || {};
+
+        if (!userId) {
+            return res.status(401).json({ ok: false, error: "Unauthorized" });
+        }
+
+        if (!token) {
+            return res.status(400).json({ ok: false, error: "Missing token" });
+        }
+
+        db = await getDb();
+        await db.beginTransaction();
+
+        const [userRows] = await db.query(
+            `SELECT id, email
+             FROM users
+             WHERE id = ?
+             LIMIT 1
+             FOR UPDATE`,
+            [userId]
+        );
+
+        if (!userRows || userRows.length === 0) {
+            await db.rollback();
+            await db.end();
+            return res.status(404).json({ ok: false, error: "User not found" });
+        }
+
+        const user = userRows[0];
+        const userEmail = String(user.email || "").trim().toLowerCase();
+
+        const [userCircleRows] = await db.query(
+            `SELECT COUNT(*) AS count
+             FROM circle_members
+             WHERE user_id = ?`,
+            [userId]
+        );
+
+        const userCircleCount = Number(userCircleRows?.[0]?.count || 0);
+
+        if (userCircleCount >= 3) {
+            await db.rollback();
+            await db.end();
+            return res.status(409).json({
+                ok: false,
+                error: "User already belongs to the maximum number of circles (max 3)",
+            });
+        }
+
+        const [inviteRows] = await db.query(
+            `SELECT *
+             FROM circle_invites
+             WHERE token = ?
+             LIMIT 1
+             FOR UPDATE`,
+            [String(token).trim()]
+        );
+
+        if (!inviteRows || inviteRows.length === 0) {
+            await db.rollback();
+            await db.end();
+            return res.status(404).json({ ok: false, error: "Invite not found" });
+        }
+
+        const invite = inviteRows[0];
+
+        if (invite.status !== "pending") {
+            await db.rollback();
+            await db.end();
+            return res.status(409).json({ ok: false, error: "Invite is not pending" });
+        }
+
+        const inviteEmail = String(invite.invitee_email || "").trim().toLowerCase();
+
+        if (!userEmail || userEmail !== inviteEmail) {
+            await db.rollback();
+            await db.end();
+            return res.status(403).json({
+                ok: false,
+                error: "This invite does not belong to the current user",
+            });
+        }
+
+        const [circleRows] = await db.query(
+            `SELECT id
+             FROM circles
+             WHERE id = ?
+             LIMIT 1
+             FOR UPDATE`,
+            [invite.circle_id]
+        );
+
+        if (!circleRows || circleRows.length === 0) {
+            await db.rollback();
+            await db.end();
+            return res.status(404).json({ ok: false, error: "Circle not found" });
+        }
+
+        const [memberRows] = await db.query(
+            `SELECT id, user_id
+             FROM circle_members
+             WHERE circle_id = ?
+             FOR UPDATE`,
+            [invite.circle_id]
+        );
+
+        const memberCount = Array.isArray(memberRows) ? memberRows.length : 0;
+
+        if (memberCount >= 5) {
+            await db.rollback();
+            await db.end();
+            return res.status(409).json({
+                ok: false,
+                error: "Circle full (max 5 members)",
+            });
+        }
+
+        const alreadyMember = memberRows.some((m) => m.user_id === userId);
+
+        if (alreadyMember) {
+            await db.rollback();
+            await db.end();
+            return res.status(409).json({ ok: false, error: "Already a member" });
+        }
+
+        await db.query(
+            `INSERT INTO circle_members (id, circle_id, user_id, role, status)
+             VALUES (?, ?, ?, 'member', 'active')`,
+            [crypto.randomUUID(), invite.circle_id, userId]
+        );
+
+        await db.query(
+            `UPDATE circle_invites
+             SET status = 'accepted',
+                 invitee_user_id = ?,
+                 accepted_at = NOW()
+             WHERE id = ?`,
+            [userId, invite.id]
+        );
+
+        await db.commit();
+        await db.end();
+
+        return res.json({ ok: true });
+    } catch (err) {
+        try {
+            if (db) {
+                await db.rollback();
+                await db.end();
+            }
+        } catch (_) { }
+
+        console.error("ACCEPT INVITE BY TOKEN ERROR:", err);
+        return res.status(500).json({ ok: false, error: String(err) });
+    }
+});
 // Accetta invito
 app.post("/invites/:id/accept", authMiddleware, async (req, res) => {
     let db;
