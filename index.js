@@ -8,43 +8,73 @@ console.log("DB_HOST", process.env.DB_HOST, "DB_USER", process.env.DB_USER, "DB_
 const { getDb } = require("./db");
 
 function getMailTransporter() {
-    const host = String(process.env.SMTP_HOST || "").trim();
-    const port = Number(process.env.SMTP_PORT || 587);
-    const user = String(process.env.SMTP_USER || "").trim();
-    const pass = String(process.env.SMTP_PASS || "").trim();
-    const secure = String(process.env.SMTP_SECURE || "false").trim() === "true";
+        const host = String(process.env.SMTP_HOST || "").trim();
+        const port = Number(process.env.SMTP_PORT || 587);
+        const user = String(process.env.SMTP_USER || "").trim();
+        const pass = String(process.env.SMTP_PASS || "").trim();
+        const secure = String(process.env.SMTP_SECURE || "false").trim() === "true";
 
-    if (!host || !port || !user || !pass) {
-        return null;
-    }
+        if (!host || !port || !user || !pass) {
+            return null;
+        }
 
-    return nodemailer.createTransport({
-        host,
-        port,
-        secure,
-        auth: {
-            user,
-            pass,
-        },
-    });
-}
-
-        try {
-        emailResult = await sendCircleInviteEmail({
-            toEmail: normalizedInviteeEmail,
-            circleName: circle.name,
-            inviterName: inviter.name || "Un utente",
-            inviteToken: token,
+        return nodemailer.createTransport({
+            host,
+            port,
+            secure,
+            auth: {
+                user,
+                pass,
+            },
         });
-    } catch (mailErr) {
-        console.error("INVITE EMAIL ERROR:", mailErr);
-        emailResult = {
-            ok: false,
-            skipped: false,
-            error: String(mailErr),
-        };
     }
-async function ensureUsersTable() {
+
+    async function sendCircleInviteEmail({
+        toEmail,
+        circleName,
+        inviterName,
+        inviteToken,
+    }) {
+        const transporter = getMailTransporter();
+
+        if (!transporter) {
+            return {
+                ok: false,
+                skipped: true,
+                error: "SMTP not configured",
+            };
+        }
+
+        const appUrl = String(process.env.APP_URL || "").trim().replace(/\/+$/, "");
+        const fromEmail =
+            String(process.env.MAIL_FROM || "").trim() ||
+            String(process.env.SMTP_USER || "").trim();
+
+        const inviteUrl = appUrl
+            ? `${appUrl}/?invite_token=${encodeURIComponent(inviteToken)}`
+            : "";
+
+        const subject = "Sei stato invitato in una cerchia su Empagij";
+
+        const text =
+            `Ciao!\n\n` +
+            `${inviterName || "Un utente"} ti ha invitato nella cerchia "${circleName || "Empagij"}" su Empagij.\n\n` +
+            `Per entrare nella cerchia, apri questo link:\n` +
+            `${inviteUrl || "(link non disponibile: APP_URL non configurato)"}\n\n` +
+            `Se non hai ancora un account, puoi registrarti con la stessa email dell’invito. Dopo l’accesso, Empagij completerà l’invito.\n\n` +
+            `Empagij`;
+
+        await transporter.sendMail({
+            from: fromEmail,
+            to: toEmail,
+            subject,
+            text,
+        });
+
+        return { ok: true, skipped: false };
+    }
+
+    async function ensureUsersTable() {
     const db = await getDb();
 
     await db.query(`
