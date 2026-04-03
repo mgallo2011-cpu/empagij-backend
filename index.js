@@ -1639,7 +1639,8 @@ app.post("/passaggi", authMiddleware, async (req, res) => {
             `,
             [circle_id, userId]
         );
-
+        console.log("PASSAGGIO PUSH RECIPIENTS COUNT", recipientRows.length);
+        console.log("PASSAGGIO PUSH RECIPIENTS", recipientRows);
         await db.end();
 
         const payload = JSON.stringify({
