@@ -1553,6 +1553,8 @@ app.get("/passaggi", authMiddleware, async (req, res) => {
 // Crea passaggio
 app.post("/passaggi", authMiddleware, async (req, res) => {
     try {
+        console.log("POST /passaggi HIT", req.body);
+        console.log("POST /passaggi USER", req.user);
         const userId = req.user.id;
 
         const {
