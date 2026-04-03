@@ -1598,7 +1598,7 @@ app.post("/passaggi", authMiddleware, async (req, res) => {
             });
         }
 
-        await db.query(
+               await db.query(
             `INSERT INTO passaggi
             (id, circle_id, from_user_id, from_name, producer_id, producer_name, producer_category, when_label, date_iso, note, status)
             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
@@ -1617,9 +1617,45 @@ app.post("/passaggi", authMiddleware, async (req, res) => {
             ]
         );
 
+        const [recipientRows] = await db.query(
+            `
+            SELECT DISTINCT ps.endpoint, ps.p256dh, ps.auth
+            FROM circle_members cm
+            JOIN push_subscriptions ps ON ps.user_id = cm.user_id
+            WHERE cm.circle_id = ?
+              AND cm.user_id <> ?
+            `,
+            [circle_id, userId]
+        );
+
         await db.end();
+
+        const payload = JSON.stringify({
+            title: "Nuovo passaggio nella tua cerchia",
+            body: `${from_name} sta andando da ${producer_name}`,
+            url: "/",
+        });
+
+        for (const sub of recipientRows) {
+            try {
+                await webPush.sendNotification(
+                    {
+                        endpoint: sub.endpoint,
+                        keys: {
+                            p256dh: sub.p256dh,
+                            auth: sub.auth,
+                        },
+                    },
+                    payload
+                );
+            } catch (err) {
+                console.error("PASSAGGIO PUSH ERROR:", err);
+            }
+        }
+
         return res.json({ ok: true, id });
-    } catch (err) {
+
+          } catch (err) {
         console.error("CREATE PASSAGGIO ERROR:", err);
         return res.status(500).json({ ok: false, error: String(err) });
     }
