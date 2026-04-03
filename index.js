@@ -55,15 +55,19 @@ function getMailTransporter() {
         ? `${appUrl}/?invite_token=${encodeURIComponent(inviteToken)}`
         : "";
 
-    const subject = "Sei stato invitato in una cerchia su Empagij";
+            const subject = "Ti ho invitato su Empagij";
 
-    const text =
-        `Ciao!\n\n` +
-        `${inviterName || "Un utente"} ti ha invitato nella cerchia "${circleName || "Empagij"}" su Empagij.\n\n` +
-        `Per entrare nella cerchia, apri questo link:\n` +
-        `${inviteUrl || "(link non disponibile: APP_URL non configurato)"}\n\n` +
-        `Se non hai ancora un account, puoi registrarti con la stessa email dell’invito. Dopo l’accesso, Empagij completerà l’invito.\n\n` +
-        `Empagij`;
+        const text =
+            `Ciao,\n\n` +
+            `ti ho invitato su Empagij.\n\n` +
+            `È un modo semplice per organizzare spostamenti e comprare direttamente dai produttori locali (pasta, olio, formaggi…).\n\n` +
+            `In pratica:\n` +
+            `qualcuno avvisa che va dal produttore → gli altri si associano con le loro richieste → si evita di fare tanti viaggi.\n\n` +
+            `👉 Entra da qui:\n` +
+            `${inviteUrl || "(link non disponibile: APP_URL non configurato)"}\n\n` +
+            `Se non hai ancora un account, puoi registrarti al volo.\n` +
+            `Dopo l’accesso sarai già dentro la cerchia.\n\n` +
+            `A presto 🙂`;
 
     console.log("MAIL DEBUG sendCircleInviteEmail", {
         toEmail,
@@ -2170,7 +2174,23 @@ app.post("/richieste/:id/respond", authMiddleware, async (req, res) => {
              WHERE richiesta_id = ? AND target_user_id = ?`,
             [decision, id, userId]
         );
+                const [pendingRows] = await db.query(
+            `SELECT id
+             FROM richiesta_targets
+             WHERE richiesta_id = ?
+               AND status = 'pending'
+             LIMIT 1`,
+            [id]
+        );
 
+        if (!pendingRows || pendingRows.length === 0) {
+            await db.query(
+                `UPDATE richieste
+                 SET status = 'closed'
+                 WHERE id = ?`,
+                [id]
+            );
+        }
         await db.end();
 
         return res.json({ ok: true });
