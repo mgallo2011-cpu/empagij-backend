@@ -377,6 +377,16 @@ app.use(express.json());
 app.get("/health", (req, res) => {
   res.json({ ok: true, name: "empagij-backend", time: new Date().toISOString() });
 });
+app.get("/debug/push-subs", async (req, res) => {
+    try {
+        const db = await getDb();
+        const [rows] = await db.query("SELECT * FROM push_subscriptions");
+        await db.end();
+        return res.json({ ok: true, rows });
+    } catch (err) {
+        return res.status(500).json({ ok: false, error: String(err) });
+    }
+});
 app.get("/db-test", async (req, res) => {
   try {
     const db = await getDb();
