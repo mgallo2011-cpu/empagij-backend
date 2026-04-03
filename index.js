@@ -628,6 +628,15 @@ app.post("/push/subscribe", authMiddleware, async (req, res) => {
 
         const db = await getDb();
 
+              await db.query(
+            `
+            DELETE FROM push_subscriptions
+            WHERE endpoint = ?
+              AND user_id <> ?
+            `,
+            [endpoint, userId]
+        );
+
         await db.query(
             `
             INSERT INTO push_subscriptions (id, user_id, endpoint, p256dh, auth)
