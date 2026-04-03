@@ -11,7 +11,7 @@ const VAPID_PRIVATE_KEY = process.env.VAPID_PRIVATE_KEY;
 
 if (VAPID_PUBLIC_KEY && VAPID_PRIVATE_KEY) {
     webPush.setVapidDetails(
-        "mailto:admin@empagij.com",
+        "mailto:tuamail@example.com",
         VAPID_PUBLIC_KEY,
         VAPID_PRIVATE_KEY
     );
@@ -383,6 +383,16 @@ app.get("/debug/push-subs", async (req, res) => {
         const [rows] = await db.query("SELECT * FROM push_subscriptions");
         await db.end();
         return res.json({ ok: true, rows });
+    } catch (err) {
+        return res.status(500).json({ ok: false, error: String(err) });
+    }
+});
+app.get("/debug/push-subs/clear", async (req, res) => {
+    try {
+        const db = await getDb();
+        await db.query("DELETE FROM push_subscriptions");
+        await db.end();
+        return res.json({ ok: true });
     } catch (err) {
         return res.status(500).json({ ok: false, error: String(err) });
     }
