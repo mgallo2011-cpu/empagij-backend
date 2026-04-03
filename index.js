@@ -29,50 +29,70 @@ function getMailTransporter() {
         });
     }
 
-    async function sendCircleInviteEmail({
-        toEmail,
-        circleName,
-        inviterName,
-        inviteToken,
-    }) {
-        const transporter = getMailTransporter();
+   async function sendCircleInviteEmail({
+    toEmail,
+    circleName,
+    inviterName,
+    inviteToken,
+}) {
+    const transporter = getMailTransporter();
 
-        if (!transporter) {
-            return {
-                ok: false,
-                skipped: true,
-                error: "SMTP not configured",
-            };
-        }
-
-        const appUrl = String(process.env.APP_URL || "").trim().replace(/\/+$/, "");
-        const fromEmail =
-            String(process.env.MAIL_FROM || "").trim() ||
-            String(process.env.SMTP_USER || "").trim();
-
-        const inviteUrl = appUrl
-            ? `${appUrl}/?invite_token=${encodeURIComponent(inviteToken)}`
-            : "";
-
-        const subject = "Sei stato invitato in una cerchia su Empagij";
-
-        const text =
-            `Ciao!\n\n` +
-            `${inviterName || "Un utente"} ti ha invitato nella cerchia "${circleName || "Empagij"}" su Empagij.\n\n` +
-            `Per entrare nella cerchia, apri questo link:\n` +
-            `${inviteUrl || "(link non disponibile: APP_URL non configurato)"}\n\n` +
-            `Se non hai ancora un account, puoi registrarti con la stessa email dell’invito. Dopo l’accesso, Empagij completerà l’invito.\n\n` +
-            `Empagij`;
-
-        await transporter.sendMail({
-            from: fromEmail,
-            to: toEmail,
-            subject,
-            text,
-        });
-
-        return { ok: true, skipped: false };
+    if (!transporter) {
+        console.error("MAIL ERROR: transporter not created. Check SMTP env vars.");
+        return {
+            ok: false,
+            skipped: true,
+            error: "SMTP not configured",
+        };
     }
+
+    const appUrl = String(process.env.APP_URL || "").trim().replace(/\/+$/, "");
+    const fromEmail =
+        String(process.env.MAIL_FROM || "").trim() ||
+        String(process.env.SMTP_USER || "").trim();
+
+    const inviteUrl = appUrl
+        ? `${appUrl}/?invite_token=${encodeURIComponent(inviteToken)}`
+        : "";
+
+    const subject = "Sei stato invitato in una cerchia su Empagij";
+
+    const text =
+        `Ciao!\n\n` +
+        `${inviterName || "Un utente"} ti ha invitato nella cerchia "${circleName || "Empagij"}" su Empagij.\n\n` +
+        `Per entrare nella cerchia, apri questo link:\n` +
+        `${inviteUrl || "(link non disponibile: APP_URL non configurato)"}\n\n` +
+        `Se non hai ancora un account, puoi registrarti con la stessa email dell’invito. Dopo l’accesso, Empagij completerà l’invito.\n\n` +
+        `Empagij`;
+
+    console.log("MAIL DEBUG sendCircleInviteEmail", {
+        toEmail,
+        fromEmail,
+        hasAppUrl: !!appUrl,
+        inviteUrl,
+        smtpHost: process.env.SMTP_HOST || null,
+        smtpPort: process.env.SMTP_PORT || null,
+        smtpSecure: process.env.SMTP_SECURE || null,
+        smtpUserPresent: !!process.env.SMTP_USER,
+        smtpPassPresent: !!process.env.SMTP_PASS,
+    });
+
+    const info = await transporter.sendMail({
+        from: fromEmail,
+        to: toEmail,
+        subject,
+        text,
+    });
+
+    console.log("MAIL SENT RESULT", {
+        messageId: info && info.messageId ? info.messageId : null,
+        accepted: info && info.accepted ? info.accepted : [],
+        rejected: info && info.rejected ? info.rejected : [],
+        response: info && info.response ? info.response : null,
+    });
+
+    return { ok: true, skipped: false };
+}
 
     async function ensureUsersTable() {
     const db = await getDb();
@@ -937,11 +957,12 @@ app.post("/circles/:id/invite", authMiddleware, async (req, res) => {
 
         let emailResult = { ok: false, skipped: true, error: "SMTP not configured" };
 
-        try {
+               try {
             emailResult = await sendCircleInviteEmail({
                 toEmail: normalizedInviteeEmail,
                 circleName: circle.name,
                 inviterName: inviter.name || "Un utente",
+                inviteToken: token,
             });
         } catch (mailErr) {
             console.error("INVITE EMAIL ERROR:", mailErr);
