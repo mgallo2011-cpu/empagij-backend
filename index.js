@@ -613,6 +613,9 @@ return res.json({
 });
 app.post("/push/subscribe", authMiddleware, async (req, res) => {
     try {
+        console.log("PUSH SUBSCRIBE HIT", req.body);
+        console.log("PUSH SUBSCRIBE USER", req.user);
+
         const userId = req.user.id;
         const { endpoint, keys } = req.body || {};
 
