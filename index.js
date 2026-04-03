@@ -4,6 +4,21 @@ const path = require("path");
 require("dotenv").config({ path: path.join(__dirname, ".env") });
 const crypto = require("crypto");
 const nodemailer = require("nodemailer");
+const webPush = require("web-push");
+
+const VAPID_PUBLIC_KEY = process.env.VAPID_PUBLIC_KEY;
+const VAPID_PRIVATE_KEY = process.env.VAPID_PRIVATE_KEY;
+
+if (VAPID_PUBLIC_KEY && VAPID_PRIVATE_KEY) {
+    webPush.setVapidDetails(
+        "mailto:admin@empagij.com",
+        VAPID_PUBLIC_KEY,
+        VAPID_PRIVATE_KEY
+    );
+} else {
+    console.warn("VAPID keys not configured");
+}
+
 console.log("DB_HOST", process.env.DB_HOST, "DB_USER", process.env.DB_USER, "DB_PORT", process.env.DB_PORT, "DB_NAME", process.env.DB_NAME, "PWD_LEN", (process.env.DB_PASSWORD || "").length);
 const { getDb } = require("./db");
 
@@ -224,6 +239,23 @@ async function ensurePassaggiTable() {
             ADD INDEX idx_passaggi_circle_id (circle_id)
         `);
     }
+
+    await db.end();
+}
+async function ensurePushSubscriptionsTable() {
+    const db = await getDb();
+
+    await db.query(`
+        CREATE TABLE IF NOT EXISTS push_subscriptions (
+            id VARCHAR(191) NOT NULL PRIMARY KEY,
+            user_id VARCHAR(191) NOT NULL,
+            endpoint TEXT NOT NULL,
+            p256dh TEXT NOT NULL,
+            auth TEXT NOT NULL,
+            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+            UNIQUE KEY uniq_user_endpoint (user_id, endpoint(255))
+        )
+    `);
 
     await db.end();
 }
@@ -556,6 +588,45 @@ return res.json({
     user: safeUser,
 });
     } catch (err) {
+        return res.status(500).json({ ok: false, error: String(err) });
+    }
+});
+app.post("/push/subscribe", authMiddleware, async (req, res) => {
+    try {
+        const userId = req.user.id;
+        const { endpoint, keys } = req.body || {};
+
+        if (!endpoint || !keys?.p256dh || !keys?.auth) {
+            return res.status(400).json({
+                ok: false,
+                error: "Invalid subscription data",
+            });
+        }
+
+        const db = await getDb();
+
+        await db.query(
+            `
+            INSERT INTO push_subscriptions (id, user_id, endpoint, p256dh, auth)
+            VALUES (?, ?, ?, ?, ?)
+            ON DUPLICATE KEY UPDATE
+                p256dh = VALUES(p256dh),
+                auth = VALUES(auth)
+            `,
+            [
+                crypto.randomUUID(),
+                userId,
+                endpoint,
+                keys.p256dh,
+                keys.auth,
+            ]
+        );
+
+        await db.end();
+
+        return res.json({ ok: true });
+    } catch (err) {
+        console.error("PUSH SUBSCRIBE ERROR:", err);
         return res.status(500).json({ ok: false, error: String(err) });
     }
 });
@@ -2214,6 +2285,7 @@ Promise.all([
     ensurePassaggiTable(),
     ensureRichiesteTable(),
     ensureRichiestaTargetsTable(),
+    ensurePushSubscriptionsTable(),
 ])
     .then(() => {
         console.log("Users/Circles tables check OK");
