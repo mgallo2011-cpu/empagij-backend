@@ -891,37 +891,32 @@ app.post("/circles/:id/invite", authMiddleware, async (req, res) => {
         const inviter = members[0];
         const normalizedInviteeEmail = String(invitee_email).trim().toLowerCase();
 
-        const [usersByEmail] = await db.query(
+                const [usersByEmail] = await db.query(
             "SELECT id, email FROM users WHERE email = ? LIMIT 1",
             [normalizedInviteeEmail]
         );
 
-        if (!usersByEmail || usersByEmail.length === 0) {
-            await db.end();
-            return res.status(404).json({
-                ok: false,
-                error: "User not found",
-            });
-        }
+        const invitedUser =
+            usersByEmail && usersByEmail.length > 0 ? usersByEmail[0] : null;
 
-        const invitedUser = usersByEmail[0];
+        if (invitedUser) {
+            const [alreadyMembers] = await db.query(
+                `
+                SELECT id
+                FROM circle_members
+                WHERE circle_id = ? AND user_id = ?
+                LIMIT 1
+                `,
+                [circle_id, invitedUser.id]
+            );
 
-        const [alreadyMembers] = await db.query(
-            `
-            SELECT id
-            FROM circle_members
-            WHERE circle_id = ? AND user_id = ?
-            LIMIT 1
-            `,
-            [circle_id, invitedUser.id]
-        );
-
-        if (alreadyMembers && alreadyMembers.length > 0) {
-            await db.end();
-            return res.status(409).json({
-                ok: false,
-                error: "Questo utente fa già parte della cerchia",
-            });
+            if (alreadyMembers && alreadyMembers.length > 0) {
+                await db.end();
+                return res.status(409).json({
+                    ok: false,
+                    error: "Questo utente fa già parte della cerchia",
+                });
+            }
         }
 
         const [existingPendingInvites] = await db.query(
@@ -945,11 +940,19 @@ app.post("/circles/:id/invite", authMiddleware, async (req, res) => {
         const id = crypto.randomUUID();
         const token = crypto.randomUUID();
 
-        await db.query(
+               await db.query(
             `INSERT INTO circle_invites
-            (id, circle_id, invited_by_user_id, invitee_email, token, status)
-            VALUES (?, ?, ?, ?, ?, ?)`,
-            [id, circle_id, invited_by_user_id, normalizedInviteeEmail, token, "pending"]
+            (id, circle_id, invited_by_user_id, invitee_email, invitee_user_id, token, status)
+            VALUES (?, ?, ?, ?, ?, ?, ?)`,
+            [
+                id,
+                circle_id,
+                invited_by_user_id,
+                normalizedInviteeEmail,
+                invitedUser ? invitedUser.id : null,
+                token,
+                "pending",
+            ]
         );
 
         await db.end();
