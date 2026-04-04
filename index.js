@@ -2354,6 +2354,8 @@ app.delete("/richieste/:id", authMiddleware, async (req, res) => {
 });
 // Rispondi a una richiesta (accepted / declined)
 app.post("/richieste/:id/respond", authMiddleware, async (req, res) => {
+    let db;
+
     try {
         const { id } = req.params;
         const userId = req.user.id;
@@ -2366,18 +2368,20 @@ app.post("/richieste/:id/respond", authMiddleware, async (req, res) => {
             });
         }
 
-        const db = await getDb();
+        db = await getDb();
+        await db.beginTransaction();
 
-        // verifica che il target esista
-        const [rows] = await db.query(
-            `SELECT id
-             FROM richiesta_targets
-             WHERE richiesta_id = ? AND target_user_id = ?
+        const [targetRows] = await db.query(
+            `SELECT rt.id, rt.status, r.from_user_id, r.from_name, r.producer_name
+             FROM richiesta_targets rt
+             JOIN richieste r ON r.id = rt.richiesta_id
+             WHERE rt.richiesta_id = ? AND rt.target_user_id = ?
              LIMIT 1`,
             [id, userId]
         );
 
-        if (!rows || rows.length === 0) {
+        if (!targetRows || targetRows.length === 0) {
+            await db.rollback();
             await db.end();
             return res.status(404).json({
                 ok: false,
@@ -2385,13 +2389,16 @@ app.post("/richieste/:id/respond", authMiddleware, async (req, res) => {
             });
         }
 
+        const targetRow = targetRows[0];
+
         await db.query(
             `UPDATE richiesta_targets
              SET status = ?, responded_at = NOW()
              WHERE richiesta_id = ? AND target_user_id = ?`,
             [decision, id, userId]
         );
-                const [pendingRows] = await db.query(
+
+        const [pendingRows] = await db.query(
             `SELECT id
              FROM richiesta_targets
              WHERE richiesta_id = ?
@@ -2408,42 +2415,114 @@ app.post("/richieste/:id/respond", authMiddleware, async (req, res) => {
                 [id]
             );
         }
-        await db.end();
 
-        return res.json({ ok: true });
+        const [responderRows] = await db.query(
+            `SELECT name
+             FROM users
+             WHERE id = ?
+             LIMIT 1`,
+            [userId]
+        );
+
+        const responderName =
+            responderRows && responderRows.length > 0
+                ? responderRows[0].name
+                : "Un utente";
+
+        const [pushRows] = await db.query(
+            `SELECT id, user_id, endpoint, p256dh, auth
+             FROM push_subscriptions
+             WHERE user_id = ?`,
+            [targetRow.from_user_id]
+        );
+
+        await db.commit();
+        await db.end();
+        db = null;
+
+        const uniquePushRows = [];
+        const seenEndpoints = new Set();
+
+        for (const row of pushRows || []) {
+            const endpointKey = String(row.endpoint || "").trim();
+            if (!endpointKey) continue;
+            if (seenEndpoints.has(endpointKey)) continue;
+            seenEndpoints.add(endpointKey);
+            uniquePushRows.push(row);
+        }
+
+        console.log("RICHIESTA RESPONSE PUSH SENDER", targetRow.from_user_id);
+        console.log("RICHIESTA RESPONSE PUSH RECIPIENTS COUNT", uniquePushRows.length);
+        console.log("RICHIESTA RESPONSE DECISION", decision);
+
+        const actionText = decision === "accepted" ? "ha accettato" : "ha rifiutato";
+
+        const payload = JSON.stringify({
+            title: "Risposta a una tua richiesta",
+            body: `${responderName} ${actionText} la richiesta per ${targetRow.producer_name}`,
+            url: "/",
+        });
+
+        for (const sub of uniquePushRows) {
+            try {
+                await webPush.sendNotification(
+                    {
+                        endpoint: sub.endpoint,
+                        keys: {
+                            p256dh: sub.p256dh,
+                            auth: sub.auth,
+                        },
+                    },
+                    payload
+                );
+            } catch (err) {
+                console.error("RICHIESTA RESPONSE PUSH ERROR:", {
+                    statusCode: err?.statusCode || null,
+                    body: err?.body || null,
+                    endpoint: sub.endpoint,
+                });
+
+                if (err?.statusCode === 404 || err?.statusCode === 410) {
+                    try {
+                        const cleanupDb = await getDb();
+                        await cleanupDb.query(
+                            `DELETE FROM push_subscriptions
+                             WHERE endpoint = ?`,
+                            [sub.endpoint]
+                        );
+                        await cleanupDb.end();
+
+                        console.log(
+                            "RICHIESTA RESPONSE PUSH SUBSCRIPTION REMOVED",
+                            sub.endpoint
+                        );
+                    } catch (cleanupErr) {
+                        console.error(
+                            "RICHIESTA RESPONSE PUSH CLEANUP ERROR:",
+                            cleanupErr
+                        );
+                    }
+                }
+            }
+        }
+
+        return res.json({
+            ok: true,
+            response_saved: true,
+            decision,
+        });
     } catch (err) {
+        try {
+            if (db) {
+                await db.rollback();
+                await db.end();
+            }
+        } catch (_) {}
+
         console.error("RESPOND RICHIESTA ERROR:", err);
         return res.status(500).json({ ok: false, error: String(err) });
     }
 });
-process.on("uncaughtException", (err) => {
-    console.error("UNCAUGHT EXCEPTION:", err);
-});
-
-process.on("unhandledRejection", (reason) => {
-    console.error("UNHANDLED REJECTION:", reason);
-});
-Promise.all([
-    ensureUsersTable(),
-    ensureCirclesTable(),
-    ensureCircleMembersTable(),
-    ensureCircleInvitesTable(),
-    ensurePassaggiTable(),
-    ensureRichiesteTable(),
-    ensureRichiestaTargetsTable(),
-    ensurePushSubscriptionsTable(),
-])
-    .then(() => {
-        console.log("Users/Circles tables check OK");
-       
-        app.listen(PORT, "0.0.0.0", () => {
-            console.log(`Empagij backend running on 0.0.0.0:${PORT}`);
-        });
-    })
-    .catch((err) => {
-        console.error("BOOT ERROR - table setup failed:", err);
-        process.exit(1);
-    });
 
 
 
