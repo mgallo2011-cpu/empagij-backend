@@ -2009,34 +2009,36 @@ app.post("/richieste", authMiddleware, async (req, res) => {
     try {
         const userId = req.user.id;
         const {
-    circle_id,
-    from_name,
-    producer_id,
-    producer_name,
-    request_text,
-    target_user_ids,
-} = req.body || {};
+            circle_id,
+            from_name,
+            producer_id,
+            producer_name,
+            request_text,
+            target_user_ids,
+        } = req.body || {};
 
         if (
-    !circle_id ||
-    !from_name ||
-    !producer_id ||
-    !producer_name ||
-    !request_text ||
-    !Array.isArray(target_user_ids) ||
-    target_user_ids.length === 0
-) {
+            !circle_id ||
+            !from_name ||
+            !producer_id ||
+            !producer_name ||
+            !request_text ||
+            !Array.isArray(target_user_ids) ||
+            target_user_ids.length === 0
+        ) {
             return res.status(400).json({
                 ok: false,
                 error: "Missing required fields",
             });
         }
 
-            const cleanTargetUserIds = [...new Set(
-            target_user_ids
-                .map((x) => String(x || "").trim())
-                .filter(Boolean)
-        )];
+        const cleanTargetUserIds = [
+            ...new Set(
+                target_user_ids
+                    .map((x) => String(x || "").trim())
+                    .filter(Boolean)
+            ),
+        ];
 
         if (cleanTargetUserIds.length === 0) {
             return res.status(400).json({
@@ -2093,15 +2095,15 @@ app.post("/richieste", authMiddleware, async (req, res) => {
             (id, circle_id, from_user_id, from_name, producer_id, producer_name, request_text, status)
             VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
             [
-    richiestaId,
-    circle_id,
-    userId,
-    from_name,
-    producer_id,
-    producer_name,
-    String(request_text).trim(),
-    "open",
-]
+                richiestaId,
+                circle_id,
+                userId,
+                from_name,
+                producer_id,
+                producer_name,
+                String(request_text).trim(),
+                "open",
+            ]
         );
 
         for (const targetUserId of cleanTargetUserIds) {
@@ -2113,8 +2115,81 @@ app.post("/richieste", authMiddleware, async (req, res) => {
             );
         }
 
+        const placeholders = cleanTargetUserIds.map(() => "?").join(",");
+
+        const [pushRows] = await db.query(
+            `
+            SELECT ps.id, ps.user_id, ps.endpoint, ps.p256dh, ps.auth
+            FROM push_subscriptions ps
+            WHERE ps.user_id IN (${placeholders})
+            `,
+            cleanTargetUserIds
+        );
+
         await db.commit();
         await db.end();
+        db = null;
+
+        const uniquePushRows = [];
+        const seenEndpoints = new Set();
+
+        for (const row of pushRows || []) {
+            const endpointKey = String(row.endpoint || "").trim();
+            if (!endpointKey) continue;
+            if (seenEndpoints.has(endpointKey)) continue;
+            seenEndpoints.add(endpointKey);
+            uniquePushRows.push(row);
+        }
+
+        console.log("RICHIESTA PUSH TARGET USER IDS", cleanTargetUserIds);
+        console.log("RICHIESTA PUSH RECIPIENTS COUNT", uniquePushRows.length);
+        console.log("RICHIESTA PUSH RECIPIENTS", uniquePushRows);
+
+        const payload = JSON.stringify({
+            title: "Nuova richiesta nella tua cerchia",
+            body: `${from_name} ti ha chiesto dei prodotti`,
+            url: "/",
+        });
+
+        for (const sub of uniquePushRows) {
+            try {
+                await webPush.sendNotification(
+                    {
+                        endpoint: sub.endpoint,
+                        keys: {
+                            p256dh: sub.p256dh,
+                            auth: sub.auth,
+                        },
+                    },
+                    payload
+                );
+            } catch (err) {
+                console.error("RICHIESTA PUSH ERROR:", {
+                    statusCode: err?.statusCode || null,
+                    body: err?.body || null,
+                    endpoint: sub.endpoint,
+                });
+
+                if (err?.statusCode === 404 || err?.statusCode === 410) {
+                    try {
+                        const cleanupDb = await getDb();
+                        await cleanupDb.query(
+                            `DELETE FROM push_subscriptions
+                             WHERE endpoint = ?`,
+                            [sub.endpoint]
+                        );
+                        await cleanupDb.end();
+
+                        console.log("RICHIESTA PUSH SUBSCRIPTION REMOVED", sub.endpoint);
+                    } catch (cleanupErr) {
+                        console.error(
+                            "RICHIESTA PUSH CLEANUP ERROR:",
+                            cleanupErr
+                        );
+                    }
+                }
+            }
+        }
 
         return res.json({ ok: true, id: richiestaId });
     } catch (err) {
