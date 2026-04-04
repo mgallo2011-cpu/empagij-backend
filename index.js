@@ -2523,7 +2523,35 @@ app.post("/richieste/:id/respond", authMiddleware, async (req, res) => {
         return res.status(500).json({ ok: false, error: String(err) });
     }
 });
+process.on("uncaughtException", (err) => {
+    console.error("UNCAUGHT EXCEPTION:", err);
+});
 
+process.on("unhandledRejection", (reason) => {
+    console.error("UNHANDLED REJECTION:", reason);
+});
+
+Promise.all([
+    ensureUsersTable(),
+    ensureCirclesTable(),
+    ensureCircleMembersTable(),
+    ensureCircleInvitesTable(),
+    ensurePassaggiTable(),
+    ensureRichiesteTable(),
+    ensureRichiestaTargetsTable(),
+    ensurePushSubscriptionsTable(),
+])
+    .then(() => {
+        console.log("Users/Circles tables check OK");
+
+        app.listen(PORT, "0.0.0.0", () => {
+            console.log(`Empagij backend running on 0.0.0.0:${PORT}`);
+        });
+    })
+    .catch((err) => {
+        console.error("BOOT ERROR - table setup failed:", err);
+        process.exit(1);
+    });
 
 
 
