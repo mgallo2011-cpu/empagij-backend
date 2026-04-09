@@ -377,6 +377,29 @@ app.use(express.json());
 app.get("/health", (req, res) => {
   res.json({ ok: true, name: "empagij-backend", time: new Date().toISOString() });
 });
+app.get("/metrics/trips-saved", async (req, res) => {
+    try {
+        const db = await getDb();
+
+        const [rows] = await db.query(`
+            SELECT COUNT(*) AS total
+            FROM passaggi
+        `);
+
+        await db.end();
+
+        return res.json({
+            ok: true,
+            tripsSaved: Number(rows?.[0]?.total || 0),
+        });
+    } catch (err) {
+        console.error("GET /metrics/trips-saved ERROR:", err);
+        return res.status(500).json({
+            ok: false,
+            error: String(err),
+        });
+    }
+});
 app.get("/debug/push-subs", async (req, res) => {
     try {
         const db = await getDb();
