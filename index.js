@@ -2172,11 +2172,10 @@ app.post("/richieste", authMiddleware, async (req, res) => {
         );
 
         for (const targetUserId of cleanTargetUserIds) {
-            await db.query(
-                `INSERT INTO richiesta_targets
-                (id, richiesta_id, target_user_id, status)
-                VALUES (?, ?, ?, ?)`,
-                [crypto.randomUUID(), richiestaId, targetUserId, "pending"]
+            await db.query(`
+  INSERT INTO richiesta_targets (richiesta_id, target_user_id, status)
+  VALUES (?, ?, 'accepted')
+`, [richiestaId, targetUserId]);
             );
         }
 
