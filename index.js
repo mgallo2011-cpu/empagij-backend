@@ -383,8 +383,12 @@ app.get("/metrics/trips-saved", async (req, res) => {
 
         const [rows] = await db.query(`
             SELECT COUNT(*) AS total
-            FROM richiesta_targets
-            WHERE status = 'accepted'
+           FROM richiesta_targets rt
+JOIN richieste r ON r.id = rt.richiesta_id
+JOIN passaggi p ON 
+    p.circle_id = r.circle_id
+    AND p.producer_id = r.producer_id
+WHERE rt.status = 'accepted'
         `);
 
         await db.end();
