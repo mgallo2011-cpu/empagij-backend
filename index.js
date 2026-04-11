@@ -489,6 +489,17 @@ app.get("/debug/users-count", async (req, res) => {
         return res.status(500).json({ ok: false, error: String(err) });
     }
 });
+app.get("/debug/producers-count", async (req, res) => {
+    try {
+        const db = await getDb();
+        const [rows] = await db.query("SELECT COUNT(*) AS total FROM producers");
+        await db.end();
+        return res.json({ ok: true, total: Number(rows?.[0]?.total || 0) });
+    } catch (err) {
+        console.error("DEBUG PRODUCERS COUNT ERROR:", err);
+        return res.status(500).json({ ok: false, error: String(err) });
+    }
+});
 app.get("/db-circles-structure", async (req, res) => {
     try {
         const db = await getDb();
