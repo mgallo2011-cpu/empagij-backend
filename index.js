@@ -2074,13 +2074,14 @@ app.post("/richieste", authMiddleware, async (req, res) => {
     try {
         const userId = req.user.id;
         const {
-            circle_id,
-            from_name,
-            producer_id,
-            producer_name,
-            request_text,
-            target_user_ids,
-        } = req.body || {};
+    circle_id,
+    from_name,
+    producer_id,
+    producer_name,
+    request_text,
+    target_user_ids,
+    is_join_passaggio,
+} = req.body || {};
 
         if (
             !circle_id ||
@@ -2155,29 +2156,35 @@ app.post("/richieste", authMiddleware, async (req, res) => {
 
         const richiestaId = crypto.randomUUID();
 
-        await db.query(
-            `INSERT INTO richieste
-            (id, circle_id, from_user_id, from_name, producer_id, producer_name, request_text, status)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
-            [
-                richiestaId,
-                circle_id,
-                userId,
-                from_name,
-                producer_id,
-                producer_name,
-                String(request_text).trim(),
-                "open",
-            ]
-        );
+       await db.query(
+    `INSERT INTO richieste
+    (id, circle_id, from_user_id, from_name, producer_id, producer_name, request_text, status)
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+    [
+        richiestaId,
+        circle_id,
+        userId,
+        from_name,
+        producer_id,
+        producer_name,
+        String(request_text).trim(),
+        is_join_passaggio ? "closed" : "open",
+    ]
+);
 
         for (const targetUserId of cleanTargetUserIds) {
-            await db.query(`
-  INSERT INTO richiesta_targets (richiesta_id, target_user_id, status)
-  VALUES (?, ?, 'accepted')
-`, [richiestaId, targetUserId]);
-            );
-        }
+    await db.query(
+        `INSERT INTO richiesta_targets
+        (id, richiesta_id, target_user_id, status)
+        VALUES (?, ?, ?, ?)`,
+        [
+            crypto.randomUUID(),
+            richiestaId,
+            targetUserId,
+            is_join_passaggio ? "accepted" : "pending",
+        ]
+    );
+}
 
         const placeholders = cleanTargetUserIds.map(() => "?").join(",");
 
