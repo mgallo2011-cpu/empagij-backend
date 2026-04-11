@@ -383,7 +383,8 @@ app.get("/metrics/trips-saved", async (req, res) => {
 
         const [rows] = await db.query(`
             SELECT COUNT(*) AS total
-            FROM passaggi
+            FROM richiesta_targets
+            WHERE status = 'accepted'
         `);
 
         await db.end();
@@ -474,6 +475,17 @@ app.get("/db-users-structure", async (req, res) => {
         res.json({ ok: true, columns });
     } catch (err) {
         console.error("DB USERS STRUCTURE ERROR:", err);
+        return res.status(500).json({ ok: false, error: String(err) });
+    }
+});
+app.get("/debug/users-count", async (req, res) => {
+    try {
+        const db = await getDb();
+        const [rows] = await db.query("SELECT COUNT(*) AS total FROM users");
+        await db.end();
+        return res.json({ ok: true, total: Number(rows?.[0]?.total || 0) });
+    } catch (err) {
+        console.error("DEBUG USERS COUNT ERROR:", err);
         return res.status(500).json({ ok: false, error: String(err) });
     }
 });
