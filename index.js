@@ -500,6 +500,25 @@ app.get("/debug/producers-count", async (req, res) => {
         return res.status(500).json({ ok: false, error: String(err) });
     }
 });
+app.get("/debug/circles-count", async (req, res) => {
+    try {
+        const db = await getDb();
+
+        const [circlesRows] = await db.query("SELECT COUNT(*) AS total FROM circles");
+        const [membersRows] = await db.query("SELECT COUNT(*) AS total FROM circle_members");
+
+        await db.end();
+
+        return res.json({
+            ok: true,
+            circles: Number(circlesRows?.[0]?.total || 0),
+            circleMembers: Number(membersRows?.[0]?.total || 0),
+        });
+    } catch (err) {
+        console.error("DEBUG CIRCLES COUNT ERROR:", err);
+        return res.status(500).json({ ok: false, error: String(err) });
+    }
+});
 app.get("/db-circles-structure", async (req, res) => {
     try {
         const db = await getDb();
