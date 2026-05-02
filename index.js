@@ -70,19 +70,20 @@ function getMailTransporter() {
         ? `${appUrl}/?invite_token=${encodeURIComponent(inviteToken)}`
         : "";
 
-            const subject = "Ti ho invitato su Empagij";
+           const subject = "Invito su SpesaConTe – mini gruppo di acquisto";
 
-        const text =
-            `Ciao,\n\n` +
-            `ti ho invitato su Empagij.\n\n` +
-            `È un modo semplice per organizzare spostamenti e comprare direttamente dai produttori locali (pasta, olio, formaggi…).\n\n` +
-            `In pratica:\n` +
-            `qualcuno avvisa che va dal produttore → gli altri si associano con le loro richieste → si evita di fare tanti viaggi.\n\n` +
-            `👉 Entra da qui:\n` +
-            `${inviteUrl || "(link non disponibile: APP_URL non configurato)"}\n\n` +
-            `Se non hai ancora un account, puoi registrarti al volo.\n` +
-            `Dopo l’accesso sarai già dentro la cerchia.\n\n` +
-            `A presto 🙂`;
+const text =
+    `Ciao,\n\n` +
+    `ti ho invitato su SpesaConTe.\n\n` +
+    `È un modo semplice per organizzarsi e fare la spesa insieme,\n` +
+    `un po’ come un mini gruppo di acquisto (GAS), evitando viaggi inutili verso produttori locali (pasta, olio, formaggi…).\n\n` +
+    `In pratica:\n` +
+    `qualcuno segnala che sta andando → gli altri si aggiungono → si risparmia tempo e benzina.\n\n` +
+    `👉 Entra da qui:\n` +
+    `${inviteUrl || "(link non disponibile: APP_URL non configurato)"}\n\n` +
+    `Se non hai ancora un account, puoi registrarti in pochi secondi.\n` +
+    `Dopo l’accesso sarai già dentro la cerchia.\n\n` +
+    `A presto 🙂`;
 
     console.log("MAIL DEBUG sendCircleInviteEmail", {
         toEmail,
