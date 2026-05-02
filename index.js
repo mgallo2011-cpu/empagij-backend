@@ -1737,21 +1737,40 @@ app.post("/passaggi", authMiddleware, async (req, res) => {
         });
 
         for (const sub of recipientRows) {
+    try {
+        await webPush.sendNotification(
+            {
+                endpoint: sub.endpoint,
+                keys: {
+                    p256dh: sub.p256dh,
+                    auth: sub.auth,
+                },
+            },
+            payload
+        );
+    } catch (err) {
+        console.error("PASSAGGIO PUSH ERROR:", {
+            statusCode: err?.statusCode || null,
+            body: err?.body || null,
+            endpoint: sub.endpoint,
+        });
+
+        if (err?.statusCode === 404 || err?.statusCode === 410) {
             try {
-                await webPush.sendNotification(
-                    {
-                        endpoint: sub.endpoint,
-                        keys: {
-                            p256dh: sub.p256dh,
-                            auth: sub.auth,
-                        },
-                    },
-                    payload
+                const cleanupDb = await getDb();
+                await cleanupDb.query(
+                    `DELETE FROM push_subscriptions WHERE endpoint = ?`,
+                    [sub.endpoint]
                 );
-            } catch (err) {
-                console.error("PASSAGGIO PUSH ERROR:", err);
+                await cleanupDb.end();
+
+                console.log("PASSAGGIO PUSH SUBSCRIPTION REMOVED", sub.endpoint);
+            } catch (cleanupErr) {
+                console.error("PASSAGGIO PUSH CLEANUP ERROR:", cleanupErr);
             }
         }
+    }
+}
 
         return res.json({ ok: true, id });
 
@@ -2217,10 +2236,14 @@ app.post("/richieste", authMiddleware, async (req, res) => {
         console.log("RICHIESTA PUSH RECIPIENTS", uniquePushRows);
 
         const payload = JSON.stringify({
-            title: "Nuova richiesta nella tua cerchia",
-            body: `${from_name} ti ha chiesto dei prodotti`,
-            url: "/",
-        });
+    title: is_join_passaggio
+        ? "Qualcuno si è aggiunto al tuo passaggio"
+        : "Nuova richiesta nella tua cerchia",
+    body: is_join_passaggio
+        ? `${from_name} si è aggiunto al tuo passaggio da ${producer_name}`
+        : `${from_name} ti ha chiesto dei prodotti`,
+    url: "/",
+});
 
         for (const sub of uniquePushRows) {
             try {
