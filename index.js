@@ -676,6 +676,60 @@ return res.json({
         return res.status(500).json({ ok: false, error: String(err) });
     }
 });
+app.post("/auth/admin-reset-password", async (req, res) => {
+    try {
+        const { admin_key, email, new_password } = req.body || {};
+
+        const expectedKey = String(process.env.ADMIN_RESET_KEY || "").trim();
+
+        if (!expectedKey || String(admin_key || "").trim() !== expectedKey) {
+            return res.status(403).json({
+                ok: false,
+                error: "Unauthorized",
+            });
+        }
+
+        const normalizedEmail = String(email || "").trim().toLowerCase();
+        const cleanPassword = String(new_password || "").trim();
+
+        if (!normalizedEmail || !cleanPassword || cleanPassword.length < 6) {
+            return res.status(400).json({
+                ok: false,
+                error: "Missing email/new_password or password too short",
+            });
+        }
+
+        const password_hash = await bcrypt.hash(cleanPassword, 10);
+
+        const db = await getDb();
+
+        const [result] = await db.query(
+            `UPDATE users
+             SET password_hash = ?
+             WHERE email = ?`,
+            [password_hash, normalizedEmail]
+        );
+
+        await db.end();
+
+        if (!result || result.affectedRows === 0) {
+            return res.status(404).json({
+                ok: false,
+                error: "User not found",
+            });
+        }
+
+        return res.json({
+            ok: true,
+        });
+    } catch (err) {
+        console.error("ADMIN RESET PASSWORD ERROR:", err);
+        return res.status(500).json({
+            ok: false,
+            error: String(err),
+        });
+    }
+});
 app.post("/push/subscribe", authMiddleware, async (req, res) => {
     try {
         console.log("PUSH SUBSCRIBE HIT", req.body);
