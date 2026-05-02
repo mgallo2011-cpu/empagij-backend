@@ -113,7 +113,52 @@ const text =
 
     return { ok: true, skipped: false };
 }
+async function sendPasswordResetEmail({ toEmail, resetToken }) {
+    const transporter = getMailTransporter();
 
+    if (!transporter) {
+        console.error("MAIL ERROR: transporter not created. Check SMTP env vars.");
+        return {
+            ok: false,
+            skipped: true,
+            error: "SMTP not configured",
+        };
+    }
+
+    const appUrl = String(process.env.APP_URL || "").trim().replace(/\/+$/, "");
+    const fromEmail =
+        String(process.env.MAIL_FROM || "").trim() ||
+        String(process.env.SMTP_USER || "").trim();
+
+    const resetUrl = appUrl
+        ? `${appUrl}/?reset_token=${encodeURIComponent(resetToken)}`
+        : "";
+
+    const subject = "Reimposta la password di SpesaConTe";
+
+    const text =
+        `Ciao,\n\n` +
+        `hai richiesto di reimpostare la password di SpesaConTe.\n\n` +
+        `Apri questo link e scegli una nuova password:\n` +
+        `${resetUrl || "(link non disponibile: APP_URL non configurato)"}\n\n` +
+        `Se non hai richiesto tu questa operazione, ignora questa email.\n\n` +
+        `A presto 🙂`;
+
+    const info = await transporter.sendMail({
+        from: fromEmail,
+        to: toEmail,
+        subject,
+        text,
+    });
+
+    console.log("PASSWORD RESET MAIL SENT", {
+        messageId: info?.messageId || null,
+        accepted: info?.accepted || [],
+        rejected: info?.rejected || [],
+    });
+
+    return { ok: true, skipped: false };
+}
     async function ensureUsersTable() {
     const db = await getDb();
 
@@ -129,6 +174,25 @@ const text =
       updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
     )
   `);
+
+    await db.end();
+}
+async function ensurePasswordResetTokensTable() {
+    const db = await getDb();
+
+    await db.query(`
+        CREATE TABLE IF NOT EXISTS password_reset_tokens (
+            id VARCHAR(191) NOT NULL PRIMARY KEY,
+            user_id VARCHAR(191) NOT NULL,
+            token_hash VARCHAR(255) NOT NULL,
+            used_at TIMESTAMP NULL DEFAULT NULL,
+            expires_at TIMESTAMP NOT NULL,
+            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+            INDEX idx_password_reset_user_id (user_id),
+            INDEX idx_password_reset_token_hash (token_hash),
+            INDEX idx_password_reset_expires_at (expires_at)
+        )
+    `);
 
     await db.end();
 }
@@ -674,6 +738,134 @@ return res.json({
     user: safeUser,
 });
     } catch (err) {
+        return res.status(500).json({ ok: false, error: String(err) });
+    }
+});
+app.post("/auth/forgot-password", async (req, res) => {
+    try {
+        const { email } = req.body || {};
+        const normalizedEmail = String(email || "").trim().toLowerCase();
+
+        if (!normalizedEmail) {
+            return res.status(400).json({
+                ok: false,
+                error: "Missing email",
+            });
+        }
+
+        const db = await getDb();
+
+        const [users] = await db.query(
+            "SELECT id, email FROM users WHERE email = ? LIMIT 1",
+            [normalizedEmail]
+        );
+
+        if (!users || users.length === 0) {
+            await db.end();
+            return res.json({ ok: true });
+        }
+
+        const user = users[0];
+        const rawToken = crypto.randomBytes(32).toString("hex");
+        const tokenHash = crypto
+            .createHash("sha256")
+            .update(rawToken)
+            .digest("hex");
+
+        await db.query(
+            `INSERT INTO password_reset_tokens
+             (id, user_id, token_hash, expires_at)
+             VALUES (?, ?, ?, DATE_ADD(NOW(), INTERVAL 1 HOUR))`,
+            [crypto.randomUUID(), user.id, tokenHash]
+        );
+
+        await db.end();
+
+        await sendPasswordResetEmail({
+            toEmail: user.email,
+            resetToken: rawToken,
+        });
+
+        return res.json({ ok: true });
+    } catch (err) {
+        console.error("FORGOT PASSWORD ERROR:", err);
+        return res.status(500).json({ ok: false, error: String(err) });
+    }
+});
+
+app.post("/auth/reset-password", async (req, res) => {
+    let db;
+
+    try {
+        const { token, new_password } = req.body || {};
+        const cleanToken = String(token || "").trim();
+        const cleanPassword = String(new_password || "").trim();
+
+        if (!cleanToken || !cleanPassword || cleanPassword.length < 6) {
+            return res.status(400).json({
+                ok: false,
+                error: "Missing token/new_password or password too short",
+            });
+        }
+
+        const tokenHash = crypto
+            .createHash("sha256")
+            .update(cleanToken)
+            .digest("hex");
+
+        db = await getDb();
+        await db.beginTransaction();
+
+        const [tokens] = await db.query(
+            `SELECT id, user_id
+             FROM password_reset_tokens
+             WHERE token_hash = ?
+               AND used_at IS NULL
+               AND expires_at > NOW()
+             LIMIT 1
+             FOR UPDATE`,
+            [tokenHash]
+        );
+
+        if (!tokens || tokens.length === 0) {
+            await db.rollback();
+            await db.end();
+            return res.status(400).json({
+                ok: false,
+                error: "Token non valido o scaduto",
+            });
+        }
+
+        const resetRow = tokens[0];
+        const password_hash = await bcrypt.hash(cleanPassword, 10);
+
+        await db.query(
+            `UPDATE users
+             SET password_hash = ?
+             WHERE id = ?`,
+            [password_hash, resetRow.user_id]
+        );
+
+        await db.query(
+            `UPDATE password_reset_tokens
+             SET used_at = NOW()
+             WHERE id = ?`,
+            [resetRow.id]
+        );
+
+        await db.commit();
+        await db.end();
+
+        return res.json({ ok: true });
+    } catch (err) {
+        try {
+            if (db) {
+                await db.rollback();
+                await db.end();
+            }
+        } catch (_) {}
+
+        console.error("RESET PASSWORD ERROR:", err);
         return res.status(500).json({ ok: false, error: String(err) });
     }
 });
@@ -2682,6 +2874,7 @@ process.on("unhandledRejection", (reason) => {
 
 Promise.all([
     ensureUsersTable(),
+    ensurePasswordResetTokensTable(),
     ensureCirclesTable(),
     ensureCircleMembersTable(),
     ensureCircleInvitesTable(),
