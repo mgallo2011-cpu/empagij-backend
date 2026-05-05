@@ -2054,13 +2054,21 @@ app.delete("/passaggi/:id", authMiddleware, async (req, res) => {
 
         // 2. trova utenti che si sono aggiunti (richieste accepted)
        const [targetRows] = await db.query(
-    `SELECT DISTINCT rt.target_user_id
-     FROM richiesta_targets rt
-     JOIN richieste r ON r.id = rt.richiesta_id
+    `SELECT DISTINCT r.from_user_id AS target_user_id
+     FROM richieste r
+     JOIN richiesta_targets rt ON rt.richiesta_id = r.id
      WHERE r.circle_id = ?
+       AND r.producer_name = ?
+       AND r.from_user_id <> ?
+       AND rt.target_user_id = ?
        AND rt.status = 'accepted'
        AND r.status = 'closed'`,
-    [passaggio.circle_id]
+    [
+        passaggio.circle_id,
+        passaggio.producer_name,
+        userId,
+        userId,
+    ]
 );
 
         const targetUserIds = [...new Set((targetRows || []).map(r => r.target_user_id))];
