@@ -2028,31 +2028,100 @@ app.post("/passaggi", authMiddleware, async (req, res) => {
 });
 // Elimina passaggio (solo autore)
 app.delete("/passaggi/:id", authMiddleware, async (req, res) => {
+    let db;
+
     try {
         const { id } = req.params;
-
-        // Per ora prendiamo l'utente dal header (minimo sindacale, no token)
         const userId = req.user.id;
 
-        const db = await getDb();
+        db = await getDb();
 
-        // elimina SOLO se il passaggio è dell'utente loggato
-        const [result] = await db.query(
+        // 1. recupera il passaggio
+        const [rows] = await db.query(
+            `SELECT id, circle_id, from_user_id, from_name, producer_name
+             FROM passaggi
+             WHERE id = ? AND from_user_id = ?
+             LIMIT 1`,
+            [id, userId]
+        );
+
+        if (!rows || rows.length === 0) {
+            await db.end();
+            return res.status(404).json({ ok: false, error: "Not found or not allowed" });
+        }
+
+        const passaggio = rows[0];
+
+        // 2. trova utenti che si sono aggiunti (richieste accepted)
+        const [targetRows] = await db.query(
+            `SELECT DISTINCT rt.target_user_id
+             FROM richiesta_targets rt
+             JOIN richieste r ON r.id = rt.richiesta_id
+             WHERE r.circle_id = ?
+               AND r.producer_name = ?
+               AND rt.status = 'accepted'`,
+            [passaggio.circle_id, passaggio.producer_name]
+        );
+
+        const targetUserIds = [...new Set((targetRows || []).map(r => r.target_user_id))];
+
+        // 3. prendi le loro subscription push
+        let pushRows = [];
+        if (targetUserIds.length > 0) {
+            const placeholders = targetUserIds.map(() => "?").join(",");
+            const [rows] = await db.query(
+                `SELECT endpoint, p256dh, auth
+                 FROM push_subscriptions
+                 WHERE user_id IN (${placeholders})`,
+                targetUserIds
+            );
+            pushRows = rows || [];
+        }
+
+        // 4. elimina passaggio
+        await db.query(
             "DELETE FROM passaggi WHERE id = ? AND from_user_id = ?",
             [id, userId]
         );
 
         await db.end();
+        db = null;
 
-        // result.affectedRows = 0 => o non esiste, o non è tuo
-        if (!result || result.affectedRows === 0) {
-            return res
-                .status(404)
-                .json({ ok: false, error: "Not found or not allowed" });
+        // 5. invia notifiche
+        const payload = JSON.stringify({
+            title: "Passaggio annullato",
+            body: `${passaggio.from_name} ha annullato il passaggio da ${passaggio.producer_name}`,
+            url: "/",
+        });
+
+        for (const sub of pushRows) {
+            try {
+                await webPush.sendNotification(
+                    {
+                        endpoint: sub.endpoint,
+                        keys: {
+                            p256dh: sub.p256dh,
+                            auth: sub.auth,
+                        },
+                    },
+                    payload
+                );
+            } catch (err) {
+                console.error("DELETE PUSH ERROR:", err?.statusCode, err?.body);
+            }
         }
 
-        return res.json({ ok: true });
+        return res.json({
+            ok: true,
+            notified: targetUserIds.length,
+        });
+
     } catch (err) {
+        try {
+            if (db) await db.end();
+        } catch (_) {}
+
+        console.error("DELETE PASSAGGIO ERROR:", err);
         return res.status(500).json({ ok: false, error: String(err) });
     }
 });
