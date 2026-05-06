@@ -23,15 +23,27 @@ console.log("DB_HOST", process.env.DB_HOST, "DB_USER", process.env.DB_USER, "DB_
 const { getDb } = require("./db");
 
 function getMailTransporter() {
-        const host = String(process.env.SMTP_HOST || "").trim();
-        const port = Number(process.env.SMTP_PORT || 587);
-        const user = String(process.env.SMTP_USER || "").trim();
-        const pass = String(process.env.SMTP_PASS || "").trim();
-        const secure = String(process.env.SMTP_SECURE || "false").trim() === "true";
+    const host = String(process.env.SMTP_HOST || "").trim();
+    const port = Number(process.env.SMTP_PORT || 587);
+    const user = String(process.env.SMTP_USER || "").trim();
+    const pass = String(process.env.SMTP_PASS || "").trim();
+    const secure =
+        String(process.env.SMTP_SECURE || "false").trim() === "true";
 
-        if (!host || !port || !user || !pass) {
-            return null;
-        }
+    if (!host || !port || !user || !pass) {
+        return null;
+    }
+
+    return nodemailer.createTransport({
+        host,
+        port,
+        secure,
+        auth: {
+            user,
+            pass,
+        },
+    });
+}
 
         return nodemailer.createTransport({
             host,
@@ -98,7 +110,7 @@ const text =
     });
 
     const info = await transporter.sendMail({
-        from: fromEmail,
+        from: process.env.MAIL_FROM,
         to: toEmail,
         subject,
         text,
@@ -145,7 +157,7 @@ async function sendPasswordResetEmail({ toEmail, resetToken }) {
         `A presto 🙂`;
 
     const info = await transporter.sendMail({
-        from: fromEmail,
+        from: process.env.MAIL_FROM,
         to: toEmail,
         subject,
         text,
