@@ -34,18 +34,7 @@ function getMailTransporter() {
         return null;
     }
 
-    return nodemailer.createTransport({
-        host,
-        port,
-        secure,
-        auth: {
-            user,
-            pass,
-        },
-    });
-}
-
-        return nodemailer.createTransport({
+         return nodemailer.createTransport({
             host,
             port,
             secure,
