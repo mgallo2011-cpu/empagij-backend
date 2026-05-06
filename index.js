@@ -985,6 +985,112 @@ app.delete("/circles/:circleId/members/:memberUserId", authMiddleware, async (re
         return res.status(500).json({ ok: false, error: String(err) });
     }
 });
+app.delete("/circles/:circleId/leave", authMiddleware, async (req, res) => {
+    let db;
+
+    try {
+        const { circleId } = req.params;
+        const userId = req.user.id;
+
+        if (!userId) {
+            return res.status(401).json({ ok: false, error: "Unauthorized" });
+        }
+
+        db = await getDb();
+        await db.beginTransaction();
+
+        const [circleRows] = await db.query(
+            `SELECT id, owner_user_id
+             FROM circles
+             WHERE id = ?
+             LIMIT 1
+             FOR UPDATE`,
+            [circleId]
+        );
+
+        if (!circleRows || circleRows.length === 0) {
+            await db.rollback();
+            await db.end();
+            return res.status(404).json({ ok: false, error: "Circle not found" });
+        }
+
+        const circle = circleRows[0];
+
+        const [memberRows] = await db.query(
+            `SELECT id, role
+             FROM circle_members
+             WHERE circle_id = ? AND user_id = ?
+             LIMIT 1
+             FOR UPDATE`,
+            [circleId, userId]
+        );
+
+        if (!memberRows || memberRows.length === 0) {
+            await db.rollback();
+            await db.end();
+            return res.status(404).json({ ok: false, error: "You are not a member of this circle" });
+        }
+
+        if (circle.owner_user_id === userId) {
+            await db.rollback();
+            await db.end();
+            return res.status(400).json({
+                ok: false,
+                error: "Owner cannot leave the circle. Delete the circle or remove other members first.",
+            });
+        }
+
+        await db.query(
+            `DELETE FROM richiesta_targets
+             WHERE target_user_id = ?
+               AND richiesta_id IN (
+                   SELECT id FROM richieste WHERE circle_id = ?
+               )`,
+            [userId, circleId]
+        );
+
+        await db.query(
+            `DELETE FROM richieste
+             WHERE circle_id = ? AND from_user_id = ?`,
+            [circleId, userId]
+        );
+
+        await db.query(
+            `DELETE FROM passaggi
+             WHERE circle_id = ? AND from_user_id = ?`,
+            [circleId, userId]
+        );
+
+        await db.query(
+            `DELETE FROM circle_invites
+             WHERE circle_id = ?
+               AND invitee_user_id = ?
+               AND status = 'pending'`,
+            [circleId, userId]
+        );
+
+        await db.query(
+            `DELETE FROM circle_members
+             WHERE circle_id = ? AND user_id = ?`,
+            [circleId, userId]
+        );
+
+        await db.commit();
+        await db.end();
+
+        return res.json({ ok: true });
+    } catch (err) {
+        try {
+            if (db) {
+                await db.rollback();
+                await db.end();
+            }
+        } catch (_) {}
+
+        console.error("LEAVE CIRCLE ERROR:", err);
+        return res.status(500).json({ ok: false, error: String(err) });
+    }
+});
 
 // ===== CERCHIE =====
 
