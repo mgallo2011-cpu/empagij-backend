@@ -2113,7 +2113,13 @@ app.delete("/passaggi/:id", authMiddleware, async (req, res) => {
 );
 
         const targetUserIds = [...new Set((targetRows || []).map(r => r.target_user_id))];
-
+        console.log("DELETE PASSAGGIO TARGET USERS", {
+    passaggioId: id,
+    circleId: passaggio.circle_id,
+    producerName: passaggio.producer_name,
+    promoterUserId: userId,
+    targetUserIds,
+});
         // 3. prendi le loro subscription push
         let pushRows = [];
         if (targetUserIds.length > 0) {
@@ -2145,16 +2151,25 @@ app.delete("/passaggi/:id", authMiddleware, async (req, res) => {
 
         for (const sub of pushRows) {
             try {
-                await webPush.sendNotification(
-                    {
-                        endpoint: sub.endpoint,
-                        keys: {
-                            p256dh: sub.p256dh,
-                            auth: sub.auth,
-                        },
-                    },
-                    payload
-                );
+                const result = await webPush.sendNotification(
+    {
+        endpoint: sub.endpoint,
+        keys: {
+            p256dh: sub.p256dh,
+            auth: sub.auth,
+        },
+    },
+    payload
+);
+
+console.log("DELETE PASSAGGIO PUSH SENT OK:", {
+    statusCode: result?.statusCode || null,
+    endpointHash: crypto
+        .createHash("sha256")
+        .update(sub.endpoint)
+        .digest("hex")
+        .slice(0, 16),
+});
             } catch (err) {
                 console.error("DELETE PUSH ERROR:", err?.statusCode, err?.body);
             }
