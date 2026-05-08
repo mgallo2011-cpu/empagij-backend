@@ -2025,7 +2025,13 @@ app.post("/passaggi", authMiddleware, async (req, res) => {
             auth: sub.auth,
         },
     },
-    payload
+    payload,
+    {
+        TTL: 3600,
+        headers: {
+            Urgency: "high",
+        },
+    }
 );
 
 console.log("PASSAGGIO PUSH SENT OK:", {
