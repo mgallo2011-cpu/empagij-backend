@@ -2011,7 +2011,7 @@ app.post("/passaggi", authMiddleware, async (req, res) => {
 
         const payload = JSON.stringify({
             title: "Nuovo passaggio nella tua cerchia",
-            body: `${from_name} sta andando da ${producer_name}`,
+            body: `${from_name} andrà da ${producer_name}`,
             url: "/",
         });
 
