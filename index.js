@@ -318,10 +318,53 @@ async function ensurePushSubscriptionsTable() {
             endpoint TEXT NOT NULL,
             p256dh TEXT NOT NULL,
             auth TEXT NOT NULL,
+            user_agent TEXT NULL,
+            last_error_status INT NULL,
+            last_error_at TIMESTAMP NULL DEFAULT NULL,
             created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-            UNIQUE KEY uniq_user_endpoint (user_id, endpoint(255))
+            updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+            UNIQUE KEY uniq_user_endpoint (user_id, endpoint(255)),
+            INDEX idx_push_subscriptions_user_id (user_id)
         )
     `);
+
+    async function addColumnIfMissing(columnName, ddl) {
+        const [cols] = await db.query(
+            `
+            SELECT COLUMN_NAME
+            FROM INFORMATION_SCHEMA.COLUMNS
+            WHERE TABLE_SCHEMA = DATABASE()
+              AND TABLE_NAME = 'push_subscriptions'
+              AND COLUMN_NAME = ?
+            LIMIT 1
+            `,
+            [columnName]
+        );
+
+        if (!cols || cols.length === 0) {
+            await db.query(ddl);
+        }
+    }
+
+    await addColumnIfMissing(
+        "user_agent",
+        `ALTER TABLE push_subscriptions ADD COLUMN user_agent TEXT NULL`
+    );
+
+    await addColumnIfMissing(
+        "last_error_status",
+        `ALTER TABLE push_subscriptions ADD COLUMN last_error_status INT NULL`
+    );
+
+    await addColumnIfMissing(
+        "last_error_at",
+        `ALTER TABLE push_subscriptions ADD COLUMN last_error_at TIMESTAMP NULL DEFAULT NULL`
+    );
+
+    await addColumnIfMissing(
+        "updated_at",
+        `ALTER TABLE push_subscriptions ADD COLUMN updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP`
+    );
 
     await db.end();
 }
@@ -758,22 +801,39 @@ app.post("/auth/admin-reset-password", async (req, res) => {
 });
 app.post("/push/subscribe", authMiddleware, async (req, res) => {
     try {
-        console.log("PUSH SUBSCRIBE HIT", req.body);
-        console.log("PUSH SUBSCRIBE USER", req.user);
-
         const userId = req.user.id;
         const { endpoint, keys } = req.body || {};
+        const userAgent = req.header("user-agent") || null;
 
         if (!endpoint || !keys?.p256dh || !keys?.auth) {
+            console.error("PUSH SUBSCRIBE INVALID DATA", {
+                userId,
+                hasEndpoint: !!endpoint,
+                hasP256dh: !!keys?.p256dh,
+                hasAuth: !!keys?.auth,
+            });
+
             return res.status(400).json({
                 ok: false,
                 error: "Invalid subscription data",
             });
         }
 
+        const endpointHash = crypto
+            .createHash("sha256")
+            .update(endpoint)
+            .digest("hex")
+            .slice(0, 16);
+
+        console.log("PUSH SUBSCRIBE START", {
+            userId,
+            endpointHash,
+            userAgent,
+        });
+
         const db = await getDb();
 
-              await db.query(
+        await db.query(
             `
             DELETE FROM push_subscriptions
             WHERE endpoint = ?
@@ -784,11 +844,17 @@ app.post("/push/subscribe", authMiddleware, async (req, res) => {
 
         await db.query(
             `
-            INSERT INTO push_subscriptions (id, user_id, endpoint, p256dh, auth)
-            VALUES (?, ?, ?, ?, ?)
+            INSERT INTO push_subscriptions
+                (id, user_id, endpoint, p256dh, auth, user_agent, last_error_status, last_error_at)
+            VALUES
+                (?, ?, ?, ?, ?, ?, NULL, NULL)
             ON DUPLICATE KEY UPDATE
                 p256dh = VALUES(p256dh),
-                auth = VALUES(auth)
+                auth = VALUES(auth),
+                user_agent = VALUES(user_agent),
+                last_error_status = NULL,
+                last_error_at = NULL,
+                updated_at = NOW()
             `,
             [
                 crypto.randomUUID(),
@@ -796,12 +862,32 @@ app.post("/push/subscribe", authMiddleware, async (req, res) => {
                 endpoint,
                 keys.p256dh,
                 keys.auth,
+                userAgent,
             ]
+        );
+
+        const [countRows] = await db.query(
+            `
+            SELECT COUNT(*) AS count
+            FROM push_subscriptions
+            WHERE user_id = ?
+            `,
+            [userId]
         );
 
         await db.end();
 
-        return res.json({ ok: true });
+        console.log("PUSH SUBSCRIBE OK", {
+            userId,
+            endpointHash,
+            subscriptionsForUser: Number(countRows?.[0]?.count || 0),
+        });
+
+        return res.json({
+            ok: true,
+            endpointHash,
+            subscriptionsForUser: Number(countRows?.[0]?.count || 0),
+        });
     } catch (err) {
         console.error("PUSH SUBSCRIBE ERROR:", err);
         return res.status(500).json({ ok: false, error: String(err) });
