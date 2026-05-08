@@ -2561,22 +2561,22 @@ app.post("/richieste", authMiddleware, async (req, res) => {
 
         const richiestaId = crypto.randomUUID();
 
-       await db.query(
-    `INSERT INTO richieste
+        await db.query(
+            `INSERT INTO richieste
     (id, circle_id, from_user_id, from_name, producer_id, producer_name, passaggio_id, request_text, status)
-    VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
-    [
-    richiestaId,
-    circle_id,
-    userId,
-    from_name,
-    producer_id,
-    producer_name,
-    passaggio_id || null,
-    request_text,
-    "open",
-]
-);
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+            [
+                richiestaId,
+                circle_id,
+                userId,
+                from_name,
+                producer_id,
+                producer_name,
+                passaggio_id || null,
+                String(request_text).trim(),
+                is_join_passaggio ? "closed" : "open",
+            ]
+        );
 
         for (const targetUserId of cleanTargetUserIds) {
     await db.query(
