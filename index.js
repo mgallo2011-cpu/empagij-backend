@@ -379,6 +379,7 @@ async function ensureRichiesteTable() {
             from_name VARCHAR(191) NOT NULL,
             producer_id VARCHAR(191) NOT NULL,
             producer_name VARCHAR(191) NOT NULL,
+            passaggio_id VARCHAR(191) NULL,
             request_text TEXT NOT NULL,
             status VARCHAR(50) NOT NULL DEFAULT 'open',
             created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
@@ -388,6 +389,26 @@ async function ensureRichiesteTable() {
             INDEX idx_richieste_status (status)
         )
     `);
+    const [passaggioIdCols] = await db.query(`
+    SELECT COLUMN_NAME
+    FROM INFORMATION_SCHEMA.COLUMNS
+    WHERE TABLE_SCHEMA = DATABASE()
+      AND TABLE_NAME = 'richieste'
+      AND COLUMN_NAME = 'passaggio_id'
+    LIMIT 1
+`);
+
+if (!passaggioIdCols || passaggioIdCols.length === 0) {
+    await db.query(`
+        ALTER TABLE richieste
+        ADD COLUMN passaggio_id VARCHAR(191) NULL
+    `);
+
+    await db.query(`
+        CREATE INDEX idx_richieste_passaggio_id
+        ON richieste(passaggio_id)
+    `);
+}
 
     const [circleIdCols] = await db.query(`
         SELECT COLUMN_NAME
@@ -2461,6 +2482,7 @@ app.post("/richieste", authMiddleware, async (req, res) => {
     from_name,
     producer_id,
     producer_name,
+    passaggio_id,
     request_text,
     target_user_ids,
     is_join_passaggio,
@@ -2541,18 +2563,19 @@ app.post("/richieste", authMiddleware, async (req, res) => {
 
        await db.query(
     `INSERT INTO richieste
-    (id, circle_id, from_user_id, from_name, producer_id, producer_name, request_text, status)
+    (id, circle_id, from_user_id, from_name, producer_id, producer_name, passaggio_id, request_text, status)
     VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
     [
-        richiestaId,
-        circle_id,
-        userId,
-        from_name,
-        producer_id,
-        producer_name,
-        String(request_text).trim(),
-        is_join_passaggio ? "closed" : "open",
-    ]
+    richiestaId,
+    circle_id,
+    userId,
+    from_name,
+    producer_id,
+    producer_name,
+    passaggio_id || null,
+    request_text,
+    "open",
+]
 );
 
         for (const targetUserId of cleanTargetUserIds) {
