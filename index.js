@@ -2017,16 +2017,25 @@ app.post("/passaggi", authMiddleware, async (req, res) => {
 
         for (const sub of recipientRows) {
     try {
-        await webPush.sendNotification(
-            {
-                endpoint: sub.endpoint,
-                keys: {
-                    p256dh: sub.p256dh,
-                    auth: sub.auth,
-                },
-            },
-            payload
-        );
+        const result = await webPush.sendNotification(
+    {
+        endpoint: sub.endpoint,
+        keys: {
+            p256dh: sub.p256dh,
+            auth: sub.auth,
+        },
+    },
+    payload
+);
+
+console.log("PASSAGGIO PUSH SENT OK:", {
+    statusCode: result?.statusCode || null,
+    endpointHash: crypto
+        .createHash("sha256")
+        .update(sub.endpoint)
+        .digest("hex")
+        .slice(0, 16),
+});
     } catch (err) {
         console.error("PASSAGGIO PUSH ERROR:", {
             statusCode: err?.statusCode || null,
