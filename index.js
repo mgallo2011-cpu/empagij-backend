@@ -511,12 +511,15 @@ app.get("/metrics/trips-saved", async (req, res) => {
     try {
         const db = await getDb();
 
-        const [rows] = await db.query(`
-            SELECT COUNT(*) AS total
-            FROM richiesta_targets
-            WHERE status = 'accepted'
-        `);
-
+       const [rows] = await db.query(`
+    SELECT COUNT(*) AS total
+    FROM richiesta_targets rt
+    JOIN richieste r ON r.id = rt.richiesta_id
+    JOIN passaggi p ON p.id = r.passaggio_id
+    WHERE rt.status = 'accepted'
+      AND r.passaggio_id IS NOT NULL
+      AND p.status <> 'annullato'
+`);
         await db.end();
 
         return res.json({
@@ -2153,11 +2156,17 @@ app.delete("/passaggi/:id", authMiddleware, async (req, res) => {
             pushRows = rows || [];
         }
 
-        // 4. elimina passaggio
-        await db.query(
-            "DELETE FROM passaggi WHERE id = ? AND from_user_id = ?",
-            [id, userId]
-        );
+        // 4. segna il passaggio come annullato, senza cancellarlo fisicamente
+await db.query(
+    `
+    UPDATE passaggi
+    SET status = 'annullato',
+        updated_at = NOW()
+    WHERE id = ?
+      AND from_user_id = ?
+    `,
+    [id, userId]
+);
 
         await db.end();
         db = null;
