@@ -2160,10 +2160,9 @@ app.delete("/passaggi/:id", authMiddleware, async (req, res) => {
 await db.query(
     `
     UPDATE passaggi
-    SET status = 'annullato',
-        updated_at = NOW()
-    WHERE id = ?
-      AND from_user_id = ?
+SET status = 'annullato'
+WHERE id = ?
+  AND from_user_id = ?
     `,
     [id, userId]
 );
