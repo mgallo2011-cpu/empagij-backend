@@ -865,7 +865,15 @@ app.post("/push/subscribe", authMiddleware, async (req, res) => {
             `,
             [endpoint, userId]
         );
-        
+       await db.query(
+    `
+    DELETE FROM push_subscriptions
+    WHERE user_id = ?
+      AND user_agent <=> ?
+      AND endpoint <> ?
+    `,
+    [userId, userAgent, endpoint]
+); 
         await db.query(
             `
             INSERT INTO push_subscriptions
