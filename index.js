@@ -2027,10 +2027,13 @@ app.post("/passaggi", authMiddleware, async (req, res) => {
         await db.end();
 
         const payload = JSON.stringify({
-            title: "Nuovo passaggio nella tua cerchia",
-            body: `${from_name} andrà da ${producer_name}`,
-            url: "/",
-        });
+    title: "Nuovo passaggio nella tua cerchia",
+    body: `${from_name} andrà da ${producer_name}`,
+    url: "/",
+    tag: `passaggio-created-${id}`,
+    type: "passaggio_created",
+    passaggioId: id,
+});
 
         for (const sub of recipientRows) {
     try {
@@ -2042,13 +2045,7 @@ app.post("/passaggi", authMiddleware, async (req, res) => {
             auth: sub.auth,
         },
     },
-    payload,
-    {
-        TTL: 3600,
-        headers: {
-            Urgency: "high",
-        },
-    }
+    payload
 );
 
 console.log("PASSAGGIO PUSH SENT OK:", {
